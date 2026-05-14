@@ -1,0 +1,133 @@
+name: Deploy Frontend
+
+# Builds the frontend image, pushes it to ACR, and points the frontend
+# Container App at the new image + correct target port. Does not run
+# Terraform apply — image and ingress.target_port are owned by this pipeline
+# (lifecycle.ignore_changes is set on them in the container-apps module).
+#
+# Triggers:
+#   - workflow_call: invoked by deploy.yml (the orchestrator)
+#   - workflow_dispatch: run manually from the Actions tab
+#   - push (commented): uncomment the block below to auto-deploy frontend
+#     whenever something under frontend/ changes on main.
+#
+# Prerequisite: deploy-infra.yml must have run at least once so the frontend
+# Container App and ACR exist.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: string
+    outputs:
+      frontend_url:
+        description: "Public URL of the deployed frontend"
+        value: ${{ jobs.deploy.outputs.frontend_url }}
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options: ["dev", "prod"]
+  # Uncomment to deploy the frontend automatically when frontend/ changes:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'frontend/**'
+  #     - '.github/workflows/deploy-frontend.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    env:
+      TF_VAR_environment_name: ${{ inputs.environment || 'dev' }}
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check required inputs
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_STATE_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+          TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+          TF_STATE_KEY: ${{ vars.TF_STATE_KEY }}
+        run: |
+          .github/scripts/check-required.sh \
+            AZURE_CLIENT_ID \
+            AZURE_TENANT_ID \
+            AZURE_SUBSCRIPTION_ID \
+            TF_STATE_RESOURCE_GROUP \
+            TF_STATE_STORAGE_ACCOUNT \
+            TF_STATE_CONTAINER \
+            TF_STATE_KEY
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Read Terraform outputs
+        id: tfout
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}"
+          {
+            echo "acr_name=$(terraform output -raw acr_name)"
+            echo "acr_login_server=$(terraform output -raw acr_login_server)"
+            echo "frontend_app_name=$(terraform output -raw frontend_container_app_name)"
+            echo "frontend_url=$(terraform output -raw frontend_url)"
+            echo "resource_group=$(terraform output -raw resource_group_name)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: ACR login
+        run: az acr login --name "${{ steps.tfout.outputs.acr_name }}"
+
+      - name: Build and push frontend image
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.tfout.outputs.acr_login_server }}/frontend:${{ github.sha }}"
+          LATEST="${{ steps.tfout.outputs.acr_login_server }}/frontend:latest"
+          docker build -t "$IMAGE" -t "$LATEST" ./frontend
+          docker push "$IMAGE"
+          docker push "$LATEST"
+
+      - name: Update frontend Container App
+        env:
+          FRONTEND_TARGET_PORT: 8080
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.tfout.outputs.acr_login_server }}/frontend:${{ github.sha }}"
+          az containerapp update \
+            --name "${{ steps.tfout.outputs.frontend_app_name }}" \
+            --resource-group "${{ steps.tfout.outputs.resource_group }}" \
+            --image "$IMAGE"
+          az containerapp ingress update \
+            --name "${{ steps.tfout.outputs.frontend_app_name }}" \
+            --resource-group "${{ steps.tfout.outputs.resource_group }}" \
+            --target-port "$FRONTEND_TARGET_PORT"
+
+    outputs:
+      frontend_url: ${{ steps.tfout.outputs.frontend_url }}

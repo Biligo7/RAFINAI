@@ -1,0 +1,114 @@
+name: Deploy Infra
+
+# Provisions / updates Azure resources via Terraform. Owns everything except
+# container app image and ingress target_port — those are owned by
+# deploy-backend.yml and deploy-frontend.yml (see lifecycle.ignore_changes
+# in infra/modules/container-apps/main.tf).
+#
+# Triggers:
+#   - workflow_call: invoked by deploy.yml (the orchestrator)
+#   - workflow_dispatch: run manually from the Actions tab
+#   - push (commented): uncomment the block below to auto-deploy infra
+#     whenever something under infra/ changes on main.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options: ["dev", "prod"]
+  # Uncomment to deploy infrastructure automatically when infra/ changes:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'infra/**'
+  #     - '.github/workflows/deploy-infra.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    env:
+      # Derived from the GitHub Environment selection so it can't drift from
+      # the chosen env. Available to every step in this job.
+      TF_VAR_environment_name: ${{ inputs.environment || 'dev' }}
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check required inputs
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          TF_STATE_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+          TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+          TF_STATE_KEY: ${{ vars.TF_STATE_KEY }}
+          TF_VAR_project_name: ${{ vars.TF_VAR_project_name }}
+          TF_VAR_resource_name_suffix: ${{ vars.TF_VAR_resource_name_suffix }}
+          TF_VAR_sql_admin_password: ${{ secrets.TF_VAR_sql_admin_password }}
+        run: |
+          .github/scripts/check-required.sh \
+            AZURE_CLIENT_ID \
+            AZURE_TENANT_ID \
+            AZURE_SUBSCRIPTION_ID \
+            AZURE_LOCATION \
+            TF_STATE_RESOURCE_GROUP \
+            TF_STATE_STORAGE_ACCOUNT \
+            TF_STATE_CONTAINER \
+            TF_STATE_KEY \
+            TF_VAR_project_name \
+            TF_VAR_resource_name_suffix \
+            TF_VAR_sql_admin_password
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}"
+
+      - name: Terraform apply
+        working-directory: infra
+        env:
+          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+          TF_VAR_project_name: ${{ vars.TF_VAR_project_name }}
+          TF_VAR_resource_name_suffix: ${{ vars.TF_VAR_resource_name_suffix }}
+          TF_VAR_sql_admin_password: ${{ secrets.TF_VAR_sql_admin_password }}
+          TF_VAR_azure_openai_api_key: ${{ secrets.TF_VAR_azure_openai_api_key }}
+          TF_VAR_openai_api_key: ${{ secrets.TF_VAR_openai_api_key }}
+        # use_bootstrap_images=true is the default; it only takes effect on the
+        # very first apply (when container apps don't yet exist), because the
+        # image/target_port attributes have ignore_changes set. After first
+        # create, deploy-backend and deploy-frontend swap to real images.
+        run: terraform apply -auto-approve

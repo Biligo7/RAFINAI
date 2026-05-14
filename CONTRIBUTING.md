@@ -1,0 +1,29 @@
+# Contributing
+
+## Local development
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+docker compose up --build
+```
+
+Frontend: <http://localhost:8080>
+Backend (direct): <http://localhost:3000/healthz>
+
+## Coding standards
+
+- TypeScript strict mode in both `backend/` and `frontend/`.
+- Run `npm run lint` and `npm test` before opening a pull request.
+- Run `terraform fmt -recursive` in `infra/` before opening a pull request.
+- Keep dependencies minimal.
+
+## Commit messages
+
+Use short imperative commit messages. Include a body when the change is non-obvious.
+
+## Pull requests
+
+- One concern per pull request.
+- Update `README.md` and `docs/` when behavior or interfaces change.
+- The `terraform-plan.yml` workflow runs on PRs that touch `infra/`. Review the plan output before merging.

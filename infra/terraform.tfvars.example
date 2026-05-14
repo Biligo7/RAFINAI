@@ -1,0 +1,32 @@
+# Copy to terraform.tfvars (gitignored) for local applies, or pass via
+# TF_VAR_* environment variables in CI.
+
+subscription_id      = "00000000-0000-0000-0000-000000000000"
+project_name         = "aichat"
+environment_name     = "dev"
+location             = "westeurope"
+resource_name_suffix = "abc123" # 3-12 lowercase alphanumeric
+
+# Pass the Postgres admin password via TF_VAR_sql_admin_password (recommended) or
+# set it here. Do NOT commit terraform.tfvars to git.
+# sql_admin_password = "your-strong-password-here"
+
+# --- Cheapest defaults already match the variable defaults. Override below
+# only when you want to deviate.
+
+# Less cold-start pain:
+# container_apps_min_replicas = 1
+# postgres_sku_name           = "GP_Standard_D2s_v3"  # for production workloads
+
+# Bigger backend:
+# backend_cpu                 = 0.5
+# backend_memory              = "1Gi"
+# container_apps_max_replicas = 5
+
+# Existing Azure OpenAI:
+# ai_provider              = "azure_openai"
+# ai_model                 = "gpt-4.1-mini"
+# azure_openai_endpoint    = "https://YOUR-RESOURCE.openai.azure.com/"
+# azure_openai_deployment  = "gpt-4.1-mini"
+# azure_openai_api_version = "2024-10-21"
+# Pass azure_openai_api_key through TF_VAR_azure_openai_api_key.

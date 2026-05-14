@@ -1,0 +1,92 @@
+name: Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to destroy"
+        required: true
+        default: "dev"
+        type: choice
+        options: ["dev", "prod"]
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    env:
+      # Derived from the GitHub Environment selection so it can't drift from
+      # the chosen env. Available to every step in this job.
+      TF_VAR_environment_name: ${{ github.event.inputs.environment }}
+    defaults:
+      run:
+        working-directory: infra
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      # Fail loudly if the user typed the wrong confirmation. A job-level
+      # `if:` guard would mark the run green when the input is wrong, hiding
+      # the typo; this step makes the run red instead.
+      - name: Guard against accidental destroy
+        if: github.event.inputs.confirm != 'destroy'
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo "::error::You must type 'destroy' (lowercase, exact) into the confirm field. Got: '${{ github.event.inputs.confirm }}'"
+          exit 1
+      - uses: actions/checkout@v6
+      - name: Check required inputs
+        working-directory: ${{ github.workspace }}
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          TF_STATE_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+          TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+          TF_STATE_KEY: ${{ vars.TF_STATE_KEY }}
+          TF_VAR_project_name: ${{ vars.TF_VAR_project_name }}
+          TF_VAR_resource_name_suffix: ${{ vars.TF_VAR_resource_name_suffix }}
+          TF_VAR_sql_admin_password: ${{ secrets.TF_VAR_sql_admin_password }}
+        run: |
+          .github/scripts/check-required.sh \
+            AZURE_CLIENT_ID \
+            AZURE_TENANT_ID \
+            AZURE_SUBSCRIPTION_ID \
+            AZURE_LOCATION \
+            TF_STATE_RESOURCE_GROUP \
+            TF_STATE_STORAGE_ACCOUNT \
+            TF_STATE_CONTAINER \
+            TF_STATE_KEY \
+            TF_VAR_project_name \
+            TF_VAR_resource_name_suffix \
+            TF_VAR_sql_admin_password
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}"
+      - name: Terraform destroy
+        env:
+          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+          TF_VAR_project_name: ${{ vars.TF_VAR_project_name }}
+          TF_VAR_resource_name_suffix: ${{ vars.TF_VAR_resource_name_suffix }}
+          TF_VAR_sql_admin_password: ${{ secrets.TF_VAR_sql_admin_password }}
+        run: terraform destroy -auto-approve

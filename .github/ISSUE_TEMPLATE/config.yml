@@ -1,0 +1,13 @@
+# Forks: replace tachyontec/azure-ai-chat-template with your own owner/repo.
+# Format: https://github.com/<owner>/<repo>/blob/<default-branch>/<path>
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/tachyontec/azure-ai-chat-template/blob/main/docs/troubleshooting.md
+    about: Check here first — most deploy and runtime issues are already documented with symptom / cause / fix.
+  - name: Report a security vulnerability
+    url: https://github.com/tachyontec/azure-ai-chat-template/security/advisories/new
+    about: Use GitHub's private vulnerability reporting. Do not open a public issue for security problems.
+  - name: Customization deep dive
+    url: https://github.com/tachyontec/azure-ai-chat-template/blob/main/docs/customization.md
+    about: Walk through branding, system prompt, AI provider, schema, and authentication changes.

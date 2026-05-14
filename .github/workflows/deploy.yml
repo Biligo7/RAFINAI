@@ -1,0 +1,71 @@
+name: Deploy
+
+# Orchestrator. Calls deploy-infra, deploy-backend, deploy-frontend in order,
+# then runs the smoke test against the deployed stack.
+#
+# Order rationale:
+#   1. infra     — must run first; creates RG, ACR, SQL, Container Apps.
+#   2. backend   — needed before frontend so the frontend's first request to
+#                  the API hits a running backend rather than the bootstrap
+#                  hello-world image.
+#   3. frontend  — last; flips the public surface to the new release.
+#
+# The child workflows can also be triggered independently (workflow_dispatch
+# or, when uncommented, on push to their respective folder). See each child
+# workflow for details.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options: ["dev", "prod"]
+  # Uncomment to enable end to end deploys on push to main.
+  # push:
+  #   branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  infra:
+    uses: ./.github/workflows/deploy-infra.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+
+  backend:
+    needs: infra
+    uses: ./.github/workflows/deploy-backend.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+
+  frontend:
+    needs: backend
+    uses: ./.github/workflows/deploy-frontend.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+
+  smoke-test:
+    needs: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Smoke test
+        env:
+          FRONTEND_URL: ${{ needs.frontend.outputs.frontend_url }}
+        run: |
+          # Exercises healthz, config, chat creation, and SSE streaming so a
+          # buffering or proxy regression fails the deploy instead of slipping
+          # through to users.
+          bash scripts/smoke-test.sh --url "$FRONTEND_URL"
+          echo "::notice::Deployed to $FRONTEND_URL"

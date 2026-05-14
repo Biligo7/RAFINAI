@@ -1,0 +1,139 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform-plan.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    # Skip Azure-authenticated plan for forked PRs — they cannot mint OIDC
+    # tokens for the upstream repo.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      # Derived from the GitHub Environment selected above. Available to every
+      # step in this job.
+      TF_VAR_environment_name: dev
+    defaults:
+      run:
+        working-directory: infra
+        # Explicit so failures inside pipelines (e.g. `terraform plan | tee`)
+        # surface as step failures instead of being swallowed.
+        shell: bash --noprofile --norc -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check required inputs
+        working-directory: ${{ github.workspace }}
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          TF_STATE_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+          TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+          TF_STATE_KEY: ${{ vars.TF_STATE_KEY }}
+          TF_VAR_project_name: ${{ vars.TF_VAR_project_name }}
+          TF_VAR_resource_name_suffix: ${{ vars.TF_VAR_resource_name_suffix }}
+          TF_VAR_sql_admin_password: ${{ secrets.TF_VAR_sql_admin_password }}
+        run: |
+          .github/scripts/check-required.sh \
+            AZURE_CLIENT_ID \
+            AZURE_TENANT_ID \
+            AZURE_SUBSCRIPTION_ID \
+            AZURE_LOCATION \
+            TF_STATE_RESOURCE_GROUP \
+            TF_STATE_STORAGE_ACCOUNT \
+            TF_STATE_CONTAINER \
+            TF_STATE_KEY \
+            TF_VAR_project_name \
+            TF_VAR_resource_name_suffix \
+            TF_VAR_sql_admin_password
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}"
+
+      - name: Terraform validate
+        env:
+          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: terraform validate
+
+      - name: Terraform plan
+        env:
+          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+          TF_VAR_project_name: ${{ vars.TF_VAR_project_name }}
+          TF_VAR_resource_name_suffix: ${{ vars.TF_VAR_resource_name_suffix }}
+          TF_VAR_sql_admin_password: ${{ secrets.TF_VAR_sql_admin_password }}
+          TF_VAR_azure_openai_api_key: ${{ secrets.TF_VAR_azure_openai_api_key }}
+          TF_VAR_openai_api_key: ${{ secrets.TF_VAR_openai_api_key }}
+        # Plan with bootstrap images on PRs so the plan works even when ACR
+        # is empty. Real deploys do the two-step apply documented in deploy.yml.
+        # Rendering plan.txt separately (instead of `terraform plan | tee`)
+        # makes the plan's exit code authoritative — no chance of a pipe
+        # swallowing the failure.
+        run: |
+          terraform plan \
+            -var="use_bootstrap_images=true" \
+            -out=tfplan \
+            -no-color
+          terraform show -no-color tfplan > plan.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: terraform-plan
+          path: |
+            infra/tfplan
+            infra/plan.txt
+
+      - name: Comment plan summary on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const planText = fs.readFileSync('infra/plan.txt', 'utf8');
+            const truncated = planText.length > 60000
+              ? planText.slice(0, 60000) + '\n\n... (truncated, download artifact for full plan)'
+              : planText;
+            const body = [
+              '### Terraform plan',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```',
+              truncated,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
