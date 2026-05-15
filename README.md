@@ -20,6 +20,11 @@ Click **Use this template** above to start your fork. _(Repo owner: enable the t
 ```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
+```
+
+Edit `frontend/.env` and set **Supabase** values (see [Supabase authentication](#supabase-authentication) below and the step-by-step guide [`docs/supabase-setup.md`](docs/supabase-setup.md)). Without `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, the React app fails on startup and the browser shows a blank screen.
+
+```bash
 docker compose up --build
 ```
 
@@ -30,6 +35,30 @@ Open <http://localhost:8080>. The default AI provider is `mock`, so chat works w
 | <http://localhost:8080> | Frontend (React UI) |
 | <http://localhost:8080/api/config> | Backend through the Nginx proxy |
 | <http://localhost:3000/healthz> | Backend health (direct) |
+
+## Supabase authentication
+
+Full setup (project creation, dashboard toggles, SQL for `profiles`, local email confirmation): **[`docs/supabase-setup.md`](docs/supabase-setup.md)**.
+
+The frontend uses **[`@supabase/supabase-js`](https://github.com/supabase/supabase-js)** only for **sign-in / sign-out and session handling** (email + password). Chats, messages, and streaming still go through the **Python backend** and your **Postgres** (`docker-compose` or Azure), not through Supabase’s database tables for chat.
+
+**Why this dependency:** Supabase Auth gives you hosted user accounts, password hashing, email confirmation flows, and JWT access tokens without building that stack yourself. The SPA attaches the session JWT to `Authorization: Bearer …` when calling `/api/*` (see `frontend/src/api/client.ts`).
+
+**What the anon key is:** The **anon** (public) key is meant to live in browser code. It is not a secret admin credential. It identifies your Supabase project to the Auth API; row-level security on any Supabase tables you add still applies to direct PostgREST calls. Do **not** put the **service_role** key in the frontend.
+
+**Getting URL and keys:** In the [Supabase dashboard](https://supabase.com/dashboard) → your project → **Project Settings** → **API**: copy **Project URL** and the **anon public** key into `frontend/.env`. For local dev, you can turn off “Confirm email” under **Authentication** → **Providers** / **Sign In / Providers** so you can test sign-up without inbox clicks.
+
+### Frontend environment variables (`frontend/.env`)
+
+These are documented in `frontend/.env.example`. Typical local file:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `VITE_BACKEND_URL` | Yes (local dev) | Base URL of the FastAPI backend for the Vite dev proxy (e.g. `http://localhost:3000`). In Docker / Azure the public frontend container uses `BACKEND_BASE_URL` in Nginx instead. |
+| `VITE_SUPABASE_URL` | Yes | Supabase project URL, e.g. `https://<project-ref>.supabase.co`. |
+| `VITE_SUPABASE_ANON_KEY` | Yes | Supabase **anon public** API key from Project Settings → API. |
+
+Restart `npm run dev` (or rebuild the frontend container) after changing any `VITE_*` variable; Vite reads them at build/start time only.
 
 ## Quickstart — deploy to Azure
 
@@ -50,10 +79,10 @@ The single source of truth for customization is [`docs/customization.md`](docs/c
 | System prompt | `AI_SYSTEM_PROMPT` env var (Terraform `ai_system_prompt`) | One line |
 | AI provider + credentials | `AI_PROVIDER` + matching endpoint / API key | A few env vars |
 | App name | `APP_NAME` env var (flows to `/api/config` and the UI header) | One line |
-| Branding colors | `frontend/src/styles/theme.css` (`.dark` tokens) and Tailwind utilities in chat components | Theme tokens + a few hex classes |
-| Starter prompts | `frontend/src/components/ChatLayout.tsx` (`STARTER_PROMPTS`) | Edit an array |
+| Branding colors | `frontend/src/styles/app.css` (CSS variables, gradients, `.dark`) | Theme tokens |
+| Starter prompts | `frontend/src/components/ChatPanel.tsx` (`QUICK_STARTS`, greeting prompts) | Edit arrays |
 | Schema additions | `backend/app/db/schema.sql` + bump `SCHEMA_VERSION` in `backend/app/db/migrations.py` | New table + queries |
-| Authentication | Wire Easy Auth / Entra in `backend/app/main.py` (middleware) when `AUTH_ENABLED=true` | Production prerequisite |
+| Authentication | Local: Supabase email/password — [`docs/supabase-setup.md`](docs/supabase-setup.md), `frontend/.env`, `frontend/src/integrations/supabase/`. Production: Easy Auth / Entra in `backend/app/main.py` when `AUTH_ENABLED=true` | Env + optional middleware |
 
 For per-file customization with line numbers and an AI-tool-friendly project map, see [`AGENTS.md`](AGENTS.md).
 
@@ -63,6 +92,7 @@ For per-file customization with line numbers and an AI-tool-friendly project map
 | --- | --- |
 | [`docs/architecture.md`](docs/architecture.md) | Component diagram, request flow, data flow, logging flow |
 | [`docs/customization.md`](docs/customization.md) | Branding, system prompt, provider, schema, authentication, scenario examples |
+| [`docs/supabase-setup.md`](docs/supabase-setup.md) | Supabase project, env vars, auth settings, optional `profiles` schema |
 | [`docs/operations.md`](docs/operations.md) | Rollback, migrations, backup/restore, log queries, cost controls |
 | [`docs/security.md`](docs/security.md) | Threat model + production hardening checklist |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Symptom / cause / fix for common issues |
