@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.db.repository import get_repository
-from app.models import SendMessageRequest
+from app.models import SaveMessageRequest, SendMessageRequest
 from app.services.chat_service import generate_chat_response
 
 router = APIRouter()
@@ -23,6 +23,17 @@ async def list_messages(chat_id: str):
         raise HTTPException(status_code=404, detail="Chat not found")
     messages = await repo.list_messages(chat_id)
     return {"messages": [m.model_dump() for m in messages]}
+
+
+@router.post("/api/chats/{chat_id}/messages/save")
+async def save_message(chat_id: str, body: SaveMessageRequest):
+    """Insert a single message (user or assistant) without triggering AI."""
+    repo = get_repository()
+    chat = await repo.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    msg = await repo.insert_message(chat_id, body.role, body.content)
+    return msg.model_dump()
 
 
 @router.post("/api/chats/{chat_id}/messages")

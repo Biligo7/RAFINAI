@@ -98,6 +98,11 @@ class SendMessageRequest(BaseModel):
     systemPromptOverride: str | None = Field(default=None, max_length=4000)
 
 
+class SaveMessageRequest(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1)
+
+
 class FeedbackRequest(BaseModel):
     rating: Literal[-1, 1]
     comment: str | None = Field(default=None, max_length=4000)
