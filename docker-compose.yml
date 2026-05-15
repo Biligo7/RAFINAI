@@ -21,18 +21,22 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # If `pip install` fails with SSL: CERTIFICATE_VERIFY_FAILED (common
+        # behind corporate TLS inspection), keep these flags. Remove them on
+        # networks where PyPI's certificate chain verifies normally.
+        PIP_EXTRA_INSTALL_ARGS: "--trusted-host pypi.org --trusted-host files.pythonhosted.org"
     container_name: aichat-backend
     environment:
-      NODE_ENV: development
       PORT: "3000"
-      APP_NAME: Azure AI Chat
+      APP_NAME: RAFINAI
       APP_ENV: local
       LOG_LEVEL: info
       AI_PROVIDER: mock
       AI_MODEL: mock-gpt
-      AI_SYSTEM_PROMPT: You are a helpful AI assistant.
-      AI_TEMPERATURE: "0.2"
-      AI_MAX_TOKENS: "1000"
+      AI_SYSTEM_PROMPT: You are RAFINAI, an AI-powered sustainable trail companion for Greece.
+      AI_TEMPERATURE: "0.4"
+      AI_MAX_TOKENS: "2000"
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_DATABASE: ai_chat

@@ -71,7 +71,7 @@ variable "frontend_max_replicas" {
   default     = 1
 }
 
-# Default is 1: backend cold start is ~10-30s (Node boot + Postgres connect +
+# Default is 1: backend cold start is ~10-30s (Python boot + Postgres connect +
 # optional migrations), which is long enough to time out at the Container Apps
 # edge and 504 the first /api/* request after idle. Keeping one replica warm
 # avoids that and costs ~$10-15/mo on Burstable B1.

@@ -52,8 +52,8 @@ The single source of truth for customization is [`docs/customization.md`](docs/c
 | App name | `APP_NAME` env var (flows to `/api/config` and the UI header) | One line |
 | Branding colors | `frontend/src/styles/theme.css` (`.dark` tokens) and Tailwind utilities in chat components | Theme tokens + a few hex classes |
 | Starter prompts | `frontend/src/components/ChatLayout.tsx` (`STARTER_PROMPTS`) | Edit an array |
-| Schema additions | `backend/src/db/schema.sql` + bump `SCHEMA_VERSION` in `backend/src/db/migrations.ts` | New table + queries |
-| Authentication | `backend/src/middleware/authPlaceholder.ts` (Easy Auth or Entra) | Production prerequisite |
+| Schema additions | `backend/app/db/schema.sql` + bump `SCHEMA_VERSION` in `backend/app/db/migrations.py` | New table + queries |
+| Authentication | Wire Easy Auth / Entra in `backend/app/main.py` (middleware) when `AUTH_ENABLED=true` | Production prerequisite |
 
 For per-file customization with line numbers and an AI-tool-friendly project map, see [`AGENTS.md`](AGENTS.md).
 
@@ -118,7 +118,7 @@ Optional resources behind variables (off by default):
 
 ## Cheapest default configuration and cold-start tradeoffs
 
-> **The default settings are optimized for low idle cost, not low latency.** The frontend Container App scales to zero (Nginx cold-starts in ~2 s, the SPA shows a loader, usually fine). The backend stays at one replica because its cold start (Node + Postgres + optional migrations) is long enough to 504 the first `/api/*` request through the Container Apps edge. Postgres Flexible Server on Burstable B1ms also stays running, so there's no DB cold-start. To make the frontend always-warm too, set `frontend_min_replicas = 1`. To bring back full scale-to-zero (and accept the 504 risk), set `backend_min_replicas = 0`.
+> **The default settings are optimized for low idle cost, not low latency.** The frontend Container App scales to zero (Nginx cold-starts in ~2 s, the SPA shows a loader, usually fine). The backend stays at one replica because its cold start (Python + Postgres + optional migrations) is long enough to 504 the first `/api/*` request through the Container Apps edge. Postgres Flexible Server on Burstable B1ms also stays running, so there's no DB cold-start. To make the frontend always-warm too, set `frontend_min_replicas = 1`. To bring back full scale-to-zero (and accept the 504 risk), set `backend_min_replicas = 0`.
 
 | Component | Default | Why |
 | --- | --- | --- |
@@ -140,7 +140,7 @@ Optional resources behind variables (off by default):
 
 - Azure subscription with the right to create resource groups, Container Apps, Postgres Flexible Server, ACR, and role assignments.
 - GitHub repository with permission to add secrets and variables.
-- Local tools: `az` CLI ≥ 2.55, `terraform` ≥ 1.8, `docker`, `node` ≥ 20, `gh` CLI (recommended — the bootstrap scripts can push GitHub secrets/variables for you with `--set-secrets` / `--set-vars`).
+- Local tools: `az` CLI ≥ 2.55, `terraform` ≥ 1.8, `docker`, Python ≥ 3.12 (backend), `node` ≥ 20 (frontend), `gh` CLI (recommended — the bootstrap scripts can push GitHub secrets/variables for you with `--set-secrets` / `--set-vars`).
 
 ## First-time setup
 
@@ -448,7 +448,7 @@ The defaults are dev-friendly. Before exposing the app to real users, work throu
 
 - [ ] Move provider secrets to managed identity or Key Vault (`enable_key_vault = true`).
 - [ ] Set `allow_azure_services_to_sql = false` and use private endpoints or explicit IP rules for Postgres.
-- [ ] Add authentication — Container Apps auth or Microsoft Entra ID — in `backend/src/middleware/authPlaceholder.ts`.
+- [ ] Add authentication — Container Apps auth or Microsoft Entra ID — in the FastAPI app (`backend/app/main.py` middleware) when enabling `AUTH_ENABLED`.
 - [ ] Add rate limiting / abuse protection.
 - [ ] Set `frontend_min_replicas = 1` if the SPA cold start is unacceptable (backend already defaults to 1).
 - [ ] Adjust Log Analytics retention to your compliance requirements.

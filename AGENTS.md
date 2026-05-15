@@ -10,9 +10,9 @@ A production-shaped, cheap-by-default Azure deployment of a ChatGPT-style chat a
 
 | Layer | Tech | Location |
 | --- | --- | --- |
-| Backend | Node.js 20, Express, TypeScript (strict), Pino, `pg`, `openai` SDK | `backend/` |
+| Backend | Python 3.12, FastAPI, asyncpg, structlog, OpenAI Python SDK | `backend/app/` |
 | Frontend | React, Vite, Tailwind CSS v4, Nginx (reverse proxy at runtime) | `frontend/` |
-| Database | PostgreSQL (in-memory fallback when `PG_*` env vars are unset) | `backend/src/db/` |
+| Database | PostgreSQL (in-memory fallback when `PG_*` env vars are unset) | `backend/app/db/` |
 | Infra | Terraform → Azure Container Apps + Postgres Flexible Server + ACR + Log Analytics | `infra/` |
 | CI/CD | GitHub Actions over OIDC (no stored Azure credentials) | `.github/workflows/` |
 | Local dev | `docker compose` (Postgres + backend + frontend with mock AI) | `docker-compose.yml` |
@@ -23,19 +23,19 @@ The most common edits, in the order most forks make them:
 
 | What | Where | How |
 | --- | --- | --- |
-| System prompt | `backend/src/config.ts:86` | Set `AI_SYSTEM_PROMPT` env var (Terraform variable: `ai_system_prompt`) |
-| AI provider | `backend/src/services/ai/aiClient.ts:25` | Set `AI_PROVIDER` to `mock`, `azure_openai`, or `openai_compatible` |
-| Add a new provider | new `backend/src/services/ai/<name>.ts` | Implement the `AIProvider` interface in `aiClient.ts:6`, register a `case` in the switch, extend `AIProviderName` in `backend/src/config.ts:3`, extend the validation in `infra/variables.tf` |
+| System prompt | `backend/app/config.py` (`ai_system_prompt` default) | Set `AI_SYSTEM_PROMPT` env var (Terraform variable: `ai_system_prompt`) |
+| AI provider | `backend/app/services/ai/client.py` | Set `AI_PROVIDER` to `mock`, `azure_openai`, or `openai_compatible` |
+| Add a new provider | new module under `backend/app/services/ai/` | Implement streaming in `get_ai_provider()` in `client.py`, extend `Literal` in `config.py`, extend `infra/variables.tf` validation |
 | Branding (theme + layout chrome) | `frontend/src/styles/theme.css` (`.dark` / `@theme inline`) and Tailwind classes in `frontend/src/components/*.tsx` | Adjust CSS variables or utility colors (e.g. `#1e3a8a`) |
 | App name / title | env `APP_NAME` + `frontend/index.html` `<title>` | `APP_NAME` flows to `/api/config` and is rendered in the sidebar title and main header (`ChatSidebar`, `ChatLayout`) |
-| Starter prompts | `frontend/src/components/ChatLayout.tsx:13` | Edit the `STARTER_PROMPTS` array |
-| DB schema | `backend/src/db/schema.sql` | Add idempotent DDL (`CREATE ... IF NOT EXISTS`) and bump `SCHEMA_VERSION` in `backend/src/db/migrations.ts:7` |
-| Auth seam | `backend/src/middleware/authPlaceholder.ts` | No-op when `AUTH_ENABLED=false`. See `docs/customization.md` for Easy Auth / Entra wiring |
+| Starter prompts | `frontend/src/components/ChatLayout.tsx` | Edit the `STARTER_PROMPTS` array |
+| DB schema | `backend/app/db/schema.sql` | Add idempotent DDL (`CREATE ... IF NOT EXISTS`) and bump `SCHEMA_VERSION` in `backend/app/db/migrations.py` |
+| Auth seam | `backend/app/main.py` (middleware) + `AUTH_ENABLED` in `config.py` | See `docs/customization.md` for Easy Auth / Entra wiring |
 | Terraform inputs | `infra/variables.tf` | Cost/scale knobs, feature flags (Key Vault, private networking, Azure OpenAI provisioning, custom log ingestion) |
 
 ## Conventions to follow
 
-- **TypeScript strict** in both `backend/` and `frontend/`. Lint = `npm run lint` (which runs `tsc --noEmit`). Tests = `npm test` (Vitest).
+- **Python:** `ruff check app tests` and `pytest tests/` from `backend/` (see `requirements-dev.txt`). **Frontend:** TypeScript strict — `npm run lint` / `npm run build` in `frontend/`.
 - **Idempotent SQL.** All DDL uses `CREATE ... IF NOT EXISTS`. After adding to `schema.sql`, bump `SCHEMA_VERSION` so the runner re-applies on the next start.
 - **Provider secrets stay backend-only.** `/api/config` returns only safe values (`appName`, `environment`, `aiProvider`, `model`, flags). Never add a credential to that response.
 - **Terraform.** Run `terraform fmt -recursive` in `infra/` before committing. Sensitive values (`sql_admin_password`, provider API keys) are passed via `TF_VAR_*` env vars, never hardcoded.
@@ -51,8 +51,8 @@ cp frontend/.env.example frontend/.env
 docker compose up --build
 # → http://localhost:8080
 
-# Backend tests
-cd backend && npm test
+# Backend checks (from repo root or backend/)
+cd backend && pip install -r requirements-dev.txt && ruff check app tests && pytest tests/
 
 # Build & push images to ACR (after first terraform apply created the registry)
 ./scripts/build-and-push.sh

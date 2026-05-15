@@ -25,7 +25,7 @@ flowchart LR
 ```
 
 - Frontend: React + Nginx, external ingress.
-- Backend: Node.js + Express, internal ingress.
+- Backend: Python + FastAPI, internal ingress.
 - Postgres: Azure Database for PostgreSQL Flexible Server (Burstable B1ms by default).
 - AI: mock, Azure OpenAI, or any OpenAI-compatible endpoint.
 - Logs: Container console + system logs flow into Log Analytics.

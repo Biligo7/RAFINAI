@@ -58,22 +58,22 @@ AI_MODEL=gpt-4.1-mini
 
 ## Adding a new AI provider
 
-1. Implement the `AIProvider` interface in `backend/src/services/ai/<yourProvider>.ts`.
-2. Register it in `backend/src/services/ai/aiClient.ts` under a new `case` in the switch.
-3. Extend the `AIProviderName` type in `backend/src/config.ts` and the validation in `infra/variables.tf` (the `ai_provider` `validation` block).
+1. Add a provider module under `backend/app/services/ai/` (see `mock_provider.py`, `azure_openai_provider.py`, `openai_provider.py`).
+2. Register it in `backend/app/services/ai/client.py` inside `get_ai_provider()`.
+3. Extend the `ai_provider` literal in `backend/app/config.py` and the validation in `infra/variables.tf` (the `ai_provider` `validation` block).
 4. If your provider needs new env vars, add them to:
-   - `backend/src/config.ts`
+   - `backend/app/config.py`
    - `backend/.env.example`
    - The backend Container App env block in `infra/modules/container-apps/main.tf`
    - The README provider table.
 
 ## Changing the database schema
 
-1. Edit `backend/src/db/schema.sql` to add the new DDL using `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` so it stays idempotent.
-2. Bump `SCHEMA_VERSION` in `backend/src/db/migrations.ts`. The runner skips already-applied versions, so the new version triggers another pass.
-3. Update query helpers in `backend/src/db/queries.ts` and the API types in `backend/src/types/api.ts`.
+1. Edit `backend/app/db/schema.sql` to add the new DDL using `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` so it stays idempotent.
+2. Bump `SCHEMA_VERSION` in `backend/app/db/migrations.py`. The runner skips already-applied versions, so the new version triggers another pass.
+3. Update query helpers in `backend/app/db/queries.py` and Pydantic models in `backend/app/models.py`.
 
-For larger changes, replace the single-file schema with a proper migration tool (`node-pg-migrate`, `Atlas`, `Sqitch` etc.). The current setup is intentionally minimal.
+For larger changes, replace the single-file schema with a proper migration tool (`Atlas`, `Alembic`, `Sqitch`, etc.). The current setup is intentionally minimal.
 
 ## Adding authentication
 
@@ -81,18 +81,9 @@ The simplest production path is **Azure Container Apps built-in auth** (Easy Aut
 
 1. Configure the auth provider on the frontend Container App via the portal or `azurerm_container_app` `authentication` settings.
 2. The frontend container will receive `X-MS-CLIENT-PRINCIPAL` headers; forward them through Nginx (`proxy_set_header X-MS-CLIENT-PRINCIPAL $http_x_ms_client_principal;`).
-3. In the backend, decode the principal in `backend/src/middleware/authPlaceholder.ts`, populate `req.user`, and persist `app_users.external_subject` on first login.
+3. In the FastAPI backend, add middleware in `backend/app/main.py` (when `AUTH_ENABLED=true`) to decode/validate the principal, attach it to `request.state`, and persist `app_users.external_subject` on first login.
 
-Alternative: validate JWTs from Microsoft Entra ID directly in the backend with `@azure/msal-node` or `passport-azure-ad`.
-
-## Switching the backend to Python/FastAPI
-
-The default backend is Node.js because `pg` plus a pure-JS stack makes the Docker build trivial. If you prefer Python:
-
-1. Replace `backend/` with a FastAPI app. `Azure-Samples/openai-chat-backend-fastapi` is a good starting point.
-2. Use `asyncpg` or `psycopg[binary]` for Postgres. Both work cleanly against Azure Postgres Flexible Server with `sslmode=require`.
-3. Keep the same API contract (`/api/...`) so the frontend Nginx proxy and React client need no changes.
-4. Update `backend/Dockerfile` and the backend health check.
+Alternative: validate JWTs from Microsoft Entra ID directly in the backend (e.g. `python-jose`, `authlib`, or Microsoft identity libraries).
 
 ## Scaling from dev to production
 

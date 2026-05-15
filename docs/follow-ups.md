@@ -10,7 +10,7 @@ Recommendations that came out of the Postgres migration discussion. None of thes
 
 - `infra/modules/sql/main.tf` — add an `azurerm_postgresql_flexible_server_active_directory_administrator` resource pointing at the backend Container App's user-assigned identity. Drop `administrator_password` once you no longer need a fallback.
 - `infra/modules/container-apps/main.tf` — add a system-assigned or user-assigned identity to the backend Container App. Pass the identity's principal id back up to the SQL module so it can be granted as the AAD admin.
-- `backend/src/db/pool.ts` — swap the static password for `@azure/identity` `DefaultAzureCredential` and request a token with scope `https://ossrdbms-aad.database.windows.net/.default`. Inject the token as the password at connect time and refresh on token expiry (~1 hour).
+- `backend/app/db/pool.py` — swap the static password for Azure identity token acquisition (e.g. `azure-identity` + scope `https://ossrdbms-aad.database.windows.net/.default`). Inject the token as the password at connect time and refresh on token expiry (~1 hour).
 - Drop `PG_PASSWORD` and `TF_VAR_sql_admin_password` from the deploy workflow.
 
 **Cost.** Free.
@@ -24,7 +24,7 @@ Recommendations that came out of the Postgres migration discussion. None of thes
 **What to change.**
 
 - `infra/modules/sql/main.tf` — add an `azurerm_postgresql_flexible_server_configuration` resource with `name = "azure.extensions"` and `value = "VECTOR"` (or `"VECTOR,PG_TRGM"` if you also want trigram search). Azure Postgres only allows extensions on its allow-list; `vector` is on it.
-- `backend/src/db/schema.sql` — add `CREATE EXTENSION IF NOT EXISTS vector;` near the top, alongside `pgcrypto`.
+- `backend/app/db/schema.sql` — add `CREATE EXTENSION IF NOT EXISTS vector;` near the top (Azure allow-list permitting).
 - Add a sketch table when you actually need it, e.g. `CREATE TABLE message_embeddings (message_id uuid PRIMARY KEY REFERENCES messages(id), embedding vector(1536));`. No need to add this until something writes to it.
 
 **Cost.** Free.
@@ -33,42 +33,37 @@ Recommendations that came out of the Postgres migration discussion. None of thes
 
 ## 3. Add a real migration runner
 
-**Why.** The current `migrations.ts` just re-applies a single `schema.sql` file using `IF NOT EXISTS` guards. The `schema_migrations` table exists but is gated on a single hardcoded version string (`001_initial`). Adding a real migration the way the code is structured today means bumping that string and editing the schema in place — fine for a template but it loses history and makes rollback ad hoc.
+**Why.** The current `migrations.py` runner re-applies a single `schema.sql` file using `IF NOT EXISTS` guards. The `schema_migrations` table exists but is gated on a single hardcoded version string (`001_initial`). Adding a real migration the way the code is structured today means bumping that string and editing the schema in place — fine for a template but it loses history and makes rollback ad hoc.
 
 **What to change.**
 
-- Pick a tool: `node-pg-migrate` (small, SQL-file-based) or a lightweight homegrown loader that reads `migrations/*.sql` in order. Either works.
+- Pick a tool: `Alembic`, `Atlas`, or a lightweight homegrown loader that reads `migrations/*.sql` in order. Either works.
 - Move `schema.sql` content into `migrations/001_initial.sql`. Add new migrations as `migrations/00X_<name>.sql`.
-- Update `migrate-cli.ts` to invoke the runner instead of `runMigrations()`.
+- Update `backend/app/db/migrate_cli.py` to invoke the runner instead of `run_migrations()` directly.
 - Keep the in-process startup runner; just point it at the new loader.
 
 **Cost.** Free.
 
 **Risk.** Low. Most of the work is mechanical — moving SQL into numbered files and writing a loop that applies un-applied versions in order.
 
-## 4. Adopt a typed query builder (Drizzle or Kysely)
+## 4. Adopt a typed query builder (SQLAlchemy 2.0, sqlmodel, etc.)
 
-**Why.** `backend/src/db/queries.ts` is hand-rolled SQL with manual row-type interfaces. That's fine at this size but every new column means editing three places (schema, row type, mapper). A typed query builder gives:
-
-- Compile-time errors when you reference a column that doesn't exist.
-- A single source of truth for table types, derived from the schema.
-- Free migration generation (Drizzle Kit) if you adopt their migration tool too.
+**Why.** `backend/app/db/queries.py` is hand-rolled SQL. That's fine at this size but every new column means editing multiple places. A typed ORM/query layer gives compile-time checks and clearer ownership.
 
 **Which one.**
 
-- **Drizzle** — closer to SQL, smaller learning curve, ships migration tooling (`drizzle-kit`). Good fit if you also adopt #3 above using their generator.
-- **Kysely** — pure query builder, no opinions about migrations. Good if you want to keep raw SQL files but get type safety on selects.
+- **SQLAlchemy 2.0** — mature async story with `asyncpg`.
+- **sqlmodel** — Pydantic + SQLAlchemy ergonomics.
 
 **What to change.**
 
-- Add the chosen library to `backend/package.json`.
-- Define table schemas once (Drizzle: `pgTable(...)` in TS; Kysely: an `interface DB { ... }`).
-- Rewrite `queries.ts` to use the builder. The function shapes stay the same so `repository.ts` doesn't change.
-- Keep `pg` underneath both — they're drivers, not replacements.
+- Add the chosen library to `backend/requirements.txt`.
+- Define models / table metadata once.
+- Rewrite `queries.py` (or replace with repository methods). Keep route handlers stable so the frontend contract does not change.
 
 **Cost.** Free.
 
-**Risk.** Medium. The diff touches every query in the file; tests should catch regressions but allocate a focused session for it.
+**Risk.** Medium. The diff touches every query; tests should catch regressions but allocate a focused session for it.
 
 ## 5. Build images on Azure Container Registry instead of GitHub Actions runners
 
@@ -113,7 +108,7 @@ Recommendations that came out of the Postgres migration discussion. None of thes
 
 ## 8. Add a frontend test scaffold
 
-**Why.** The backend has Vitest tests (`backend/src/tests/*.test.ts`). The frontend has none — no `test` script in `frontend/package.json`, no Vitest config, no test files. For a template, even one render test of `<ChatLayout/>` against a mocked `/api/config` response prevents the most common regression: a broken bundle shipping past green CI because nothing exercised the UI tree.
+**Why.** The backend has pytest smoke tests (`backend/tests/`). The frontend has none — no `test` script in `frontend/package.json`, no Vitest config, no test files. For a template, even one render test of `<ChatLayout/>` against a mocked `/api/config` response prevents the most common regression: a broken bundle shipping past green CI because nothing exercised the UI tree.
 
 **What to change.**
 
@@ -130,5 +125,5 @@ Recommendations that came out of the Postgres migration discussion. None of thes
 
 For the record, two suggestions from the original list did not survive verification and were dropped:
 
-- **"`/readyz` doesn't actually ping the DB."** It does — `backend/src/routes/health.ts` runs `SELECT 1`. The route was correct before and after the Postgres migration.
+- **"`/readyz` doesn't actually ping the DB."** It does — `backend/app/routes/health.py` runs `SELECT 1` when Postgres is configured.
 - **"`@types/mssql` gap is upstream-broken."** It was real, but became moot when `mssql` was replaced by `pg` (which ships proper types via `@types/pg`).

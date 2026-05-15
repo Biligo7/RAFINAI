@@ -1,19 +1,52 @@
-import type {
-  AppConfigResponse,
-  Chat,
-  Message,
-  TrainingDataset,
-  TrainingExample,
-} from "../types/api.js";
+import { supabase } from "@/integrations/supabase/client";
 
-// All API calls use relative URLs so the browser only ever talks to the
-// frontend origin. The Nginx (or Vite dev) proxy forwards /api/* to the backend.
+export interface Chat {
+  id: string;
+  title: string;
+  systemPrompt: string | null;
+  model: string | null;
+  temperature: number | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Message {
+  id: string;
+  chatId: string;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tokenCount: number | null;
+  provider: string | null;
+  model: string | null;
+  latencyMs: number | null;
+  errorCode: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface AppConfigResponse {
+  appName: string;
+  environment: string;
+  aiProvider: string;
+  model: string;
+  streamingEnabled: boolean;
+  authEnabled: boolean;
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const auth = await authHeaders();
   const res = await fetch(path, {
     ...init,
     headers: {
       "content-type": "application/json",
+      ...auth,
       ...(init?.headers ?? {}),
     },
   });
@@ -23,6 +56,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const parsed = JSON.parse(body);
       if (parsed?.error?.message) message = parsed.error.message;
+      if (parsed?.detail) message = parsed.detail;
     } catch {
       // ignore
     }
@@ -35,50 +69,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   getConfig: () => request<AppConfigResponse>("/api/config"),
 
-  listChats: () => request<{ chats: Chat[] }>("/api/chats").then((r) => r.chats),
+  listChats: () =>
+    request<{ chats: Chat[] }>("/api/chats").then((r) => r.chats),
   createChat: (title: string) =>
-    request<Chat>("/api/chats", { method: "POST", body: JSON.stringify({ title }) }),
+    request<Chat>("/api/chats", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
   renameChat: (id: string, title: string) =>
-    request<Chat>(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
-  deleteChat: (id: string) => request<void>(`/api/chats/${id}`, { method: "DELETE" }),
+    request<Chat>(`/api/chats/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  deleteChat: (id: string) =>
+    request<void>(`/api/chats/${id}`, { method: "DELETE" }),
 
   listMessages: (chatId: string) =>
-    request<{ messages: Message[] }>(`/api/chats/${chatId}/messages`).then((r) => r.messages),
+    request<{ messages: Message[] }>(`/api/chats/${chatId}/messages`).then(
+      (r) => r.messages,
+    ),
 
-  sendFeedback: (messageId: string, rating: -1 | 1, comment?: string) =>
-    request(`/api/messages/${messageId}/feedback`, {
+  saveMessage: (chatId: string, role: "user" | "assistant", content: string) =>
+    request<Message>(`/api/chats/${chatId}/messages/save`, {
       method: "POST",
-      body: JSON.stringify({ rating, comment: comment ?? null }),
+      body: JSON.stringify({ role, content }),
     }),
-
-  listDatasets: () =>
-    request<{ datasets: TrainingDataset[] }>("/api/training/datasets").then((r) => r.datasets),
-  createDataset: (name: string, description?: string) =>
-    request<TrainingDataset>("/api/training/datasets", {
-      method: "POST",
-      body: JSON.stringify({ name, description: description ?? null }),
-    }),
-  listExamples: (datasetId?: string) => {
-    const qs = datasetId ? `?datasetId=${encodeURIComponent(datasetId)}` : "";
-    return request<{ examples: TrainingExample[] }>(`/api/training/examples${qs}`).then(
-      (r) => r.examples,
-    );
-  },
-  createExample: (input: {
-    datasetId?: string | null;
-    sourceChatId?: string | null;
-    sourceUserMessageId?: string | null;
-    sourceAssistantMessageId?: string | null;
-    inputText: string;
-    expectedOutputText: string;
-    tags?: string[];
-  }) =>
-    request<TrainingExample>("/api/training/examples", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-  exportJsonlUrl: (datasetId?: string) => {
-    const qs = datasetId ? `?datasetId=${encodeURIComponent(datasetId)}` : "";
-    return `/api/training/export.jsonl${qs}`;
-  },
 };

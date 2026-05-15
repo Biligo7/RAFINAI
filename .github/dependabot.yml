@@ -1,39 +1,12 @@
 version: 2
 updates:
-  # Backend npm — allow patches/minors and security bumps; majors for
-  # framework-level deps are opened manually after a migration review.
-  - package-ecosystem: "npm"
+  # Backend Python (FastAPI) — requirements.txt + dev tools in requirements-dev.txt
+  - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
     labels: ["dependencies", "backend"]
-    groups:
-      backend-types:
-        patterns: ["@types/*"]
-      pino:
-        patterns: ["pino", "pino-http"]
-    ignore:
-      - dependency-name: "express"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/express"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "compression"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/compression"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "pino"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "pino-http"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "vitest"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "tsx"
-        update-types: ["version-update:semver-major"]
 
   # Frontend npm — same policy. React/Vite/TS majors land via a deliberate
   # migration PR, not via Dependabot.
@@ -76,15 +49,14 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Docker — keep base images on the current Node major (tracks LTS the
-  # rest of the toolchain runs on); patches/minors still flow.
+  # Docker — backend runs on Python 3.12 slim; frontend build uses Node LTS.
   - package-ecosystem: "docker"
     directory: "/backend"
     schedule:
       interval: "weekly"
     labels: ["dependencies", "docker"]
     ignore:
-      - dependency-name: "node"
+      - dependency-name: "python"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker"

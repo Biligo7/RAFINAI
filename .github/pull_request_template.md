@@ -16,8 +16,8 @@
 
 <!-- Tick what you ran. Add anything custom. -->
 
-- [ ] `cd backend && npm test` passes
-- [ ] `cd backend && npm run lint` passes
+- [ ] `cd backend && pytest tests/` passes
+- [ ] `cd backend && ruff check app tests` passes
 - [ ] `cd frontend && npm run lint` passes
 - [ ] `cd infra && terraform fmt -check -recursive`
 - [ ] `cd infra && terraform validate`

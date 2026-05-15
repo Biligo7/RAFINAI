@@ -1,36 +1,32 @@
-FROM node:20-bookworm-slim AS deps
+FROM python:3.12-slim-bookworm AS base
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --include=dev
 
-FROM node:20-bookworm-slim AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
+# Keep public CA bundle current (helps some TLS setups).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-FROM node:20-bookworm-slim AS prod-deps
-WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY requirements.txt ./
 
-FROM node:20-bookworm-slim AS runtime
-WORKDIR /app
-ENV NODE_ENV=production
+# Corporate / MITM proxies often lack the signing CA inside the image, so pip
+# fails with SSLCertVerificationError. Pass build args from docker-compose
+# (or `docker build --build-arg ...`) — see docker-compose backend.build.args.
+ARG PIP_EXTRA_INSTALL_ARGS=
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir ${PIP_EXTRA_INSTALL_ARGS} -r requirements.txt
+
+COPY app/ ./app/
+
+RUN groupadd --system --gid 1001 appuser \
+    && useradd --system --uid 1001 --gid appuser appuser
+
+USER appuser
+
 ENV PORT=3000
 
-# Run as non-root.
-RUN groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nodejs
-
-COPY --from=prod-deps --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=build --chown=nodejs:nodejs /app/dist ./dist
-COPY --chown=nodejs:nodejs package.json ./
-
-USER nodejs
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz').then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/healthz')"
 
-CMD ["node", "dist/index.js"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000"]

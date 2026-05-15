@@ -53,8 +53,8 @@ ContainerAppConsoleLogs_CL
 ## Database migrations
 
 - Default behaviour: the backend runs migrations on startup if `RUN_MIGRATIONS_ON_STARTUP=true` (default). The runner is idempotent and gated on the `schema_migrations` table.
-- Manual run: `cd backend && npm run db:migrate` (uses the same env vars).
-- Disable the in-process runner and run a one-shot job in CI by setting `RUN_MIGRATIONS_ON_STARTUP=false`, then invoking `npm run db:migrate` from a job container in your pipeline.
+- Manual run: `cd backend && python -m app.db.migrate_cli` (same `PG_*` env vars as the running app).
+- Disable the in-process runner and run a one-shot job in CI by setting `RUN_MIGRATIONS_ON_STARTUP=false`, then invoking `python -m app.db.migrate_cli` from a job container in your pipeline.
 
 ## Backup and restore
 

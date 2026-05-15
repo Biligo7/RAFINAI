@@ -46,7 +46,7 @@
 Postgres Flexible Server (Burstable B1ms) is always-on, so there's no DB cold-start. The backend defaults to `backend_min_replicas = 1` to avoid 504s on the first request, but the frontend defaults to 0. Mitigations:
 
 - `frontend_min_replicas = 1` to remove the Nginx cold start too.
-- If you've explicitly set `backend_min_replicas = 0`, revert it — the first `/api/*` after idle will likely 504 because the Node + Postgres boot exceeds the Container Apps edge timeout.
+- If you've explicitly set `backend_min_replicas = 0`, revert it — the first `/api/*` after idle will likely 504 because the Python + Postgres boot exceeds the Container Apps edge timeout.
 - Surface a friendly "warming up" message in the UI for the first request after a deploy.
 
 ## Frontend 502 when proxying `/api/*`
