@@ -304,7 +304,7 @@ export function getTrailSource(): "mock" | "live" {
 
 export async function fetchLiveTrails(): Promise<Trail[]> {
   try {
-    const res = await api.listTrails({ limit: 500 });
+    const res = await api.listTrails({ limit: 500, popular_only: false });
     if (res.source === "mock" || res.trails.length === 0) {
       return MOCK_TRAILS;
     }

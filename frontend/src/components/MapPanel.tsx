@@ -26,7 +26,7 @@ const ICONIC = [
 const WAYPOINT_STYLE: Record<WaypointKind, { emoji: string; bg: string; label: string }> = {
   shelter: { emoji: "🏠", bg: "#0284c7", label: "Shelter" },
   spring: { emoji: "💧", bg: "#38bdf8", label: "Spring" },
-  biodiversity: { emoji: "🌿", bg: "#22c55e", label: "Biodiversity" },
+  biodiversity: { emoji: "🌿", bg: "#d946ef", label: "Biodiversity" },
 };
 
 function waypointDivIcon(kind: WaypointKind) {
@@ -288,10 +288,10 @@ export function MapPanel({
               center={[t.lat, t.lng]}
               radius={isHighlighted ? 14 : 8}
               pathOptions={{
-                color: isHighlighted ? "var(--aegean)" : "var(--olive)",
-                fillColor: isHighlighted ? "var(--aegean)" : "var(--olive)",
-                fillOpacity: isHighlighted ? 0.9 : 0.7,
-                weight: isHighlighted ? 3 : 1.5,
+                color: isHighlighted ? "#0284c7" : "#f59e0b",
+                fillColor: isHighlighted ? "#0284c7" : "#f59e0b",
+                fillOpacity: isHighlighted ? 0.95 : 0.85,
+                weight: isHighlighted ? 3 : 2,
               }}
             >
               <Popup>
@@ -371,17 +371,21 @@ function Legend({ trailCount, source, loading }: { trailCount: number; source: "
     <div className="absolute bottom-4 left-4 z-[400] rounded-xl border border-white/10 bg-black/70 p-3 text-xs text-white shadow-2xl backdrop-blur-md">
       <div className="mb-2 font-semibold tracking-wide text-gray-200">Topographic Sat-Overlay</div>
       <div className="flex items-center gap-2">
-        <span className="inline-block size-3 rounded-full border border-white bg-[#22c55e]" />
+        <span className="inline-block size-3 rounded-full border border-white bg-[#f59e0b]" />
         <span className="text-gray-300">
           {loading ? "Loading trails…" : `${trailCount} trails`}
           {source === "live" && !loading && (
-            <span className="ml-1 text-[10px] text-green-400">OSM</span>
+            <span className="ml-1 text-[10px] text-amber-400">OSM</span>
           )}
         </span>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <span className="inline-block size-3 rounded-full border border-white bg-[#0284c7]" />
-        <span className="text-gray-300">Suggested Active Route Target</span>
+        <span className="text-gray-300">Selected Route</span>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <span className="inline-block size-3 rounded-full border border-white bg-[#d946ef]" />
+        <span className="text-gray-300">Biodiversity</span>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <span className="relative flex size-2.5 items-center justify-center">

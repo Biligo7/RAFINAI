@@ -267,12 +267,13 @@ export const api = {
 
   // --- Trails ---
 
-  listTrails: (params?: { region?: string; difficulty?: string; limit?: number; refresh?: boolean }) => {
+  listTrails: (params?: { region?: string; difficulty?: string; limit?: number; refresh?: boolean; popular_only?: boolean }) => {
     const qs = new URLSearchParams();
     if (params?.region) qs.set("region", params.region);
     if (params?.difficulty) qs.set("difficulty", params.difficulty);
     if (params?.limit) qs.set("limit", String(params.limit));
     if (params?.refresh) qs.set("refresh", "true");
+    if (params?.popular_only === false) qs.set("popular_only", "false");
     const suffix = qs.toString() ? `?${qs}` : "";
     return request<{ trails: ApiTrail[]; source: string; total: number }>(`/api/trails${suffix}`);
   },

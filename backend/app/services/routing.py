@@ -12,7 +12,7 @@ from app.logging import get_logger
 
 logger = get_logger("services.routing")
 
-_ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-hiking/geojson"
+_ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-hiking"
 
 
 async def fetch_route(
@@ -26,8 +26,7 @@ async def fetch_route(
 
     body = {
         "coordinates": [[start_lng, start_lat], [end_lng, end_lat]],
-        "elevation": True,
-        "instructions": False,
+        "elevation": "true",
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -42,16 +41,20 @@ async def fetch_route(
         if resp.status_code == 429:
             await logger.awarning("ORS rate limit hit")
             return None
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            await logger.awarning("ORS error", status=resp.status_code, body=resp.text[:300])
+            return None
 
     data = resp.json()
-    features = data.get("features", [])
-    if not features:
+
+    routes = data.get("routes", [])
+    if not routes:
         return None
 
-    geometry = features[0].get("geometry", {})
-    coords_raw = geometry.get("coordinates", [])
-    # ORS returns [lng, lat, elevation]
+    route = routes[0]
+    summary = route.get("summary", {})
+
+    coords_raw = route.get("geometry", {}).get("coordinates", [])
     coords_latlng: list[list[float]] = []
     elevations: list[float] = []
     for c in coords_raw:
@@ -64,8 +67,6 @@ async def fetch_route(
         diff = elevations[i] - elevations[i - 1]
         if diff > 0:
             ascent += diff
-
-    summary = features[0].get("properties", {}).get("summary", {})
 
     return {
         "coordinates": coords_latlng,
