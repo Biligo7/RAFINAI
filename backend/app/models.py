@@ -130,3 +130,23 @@ class CreateExampleRequest(BaseModel):
     expectedOutputText: str = Field(..., min_length=1, max_length=32_000)
     tags: list[str] | None = None
     metadata: dict[str, Any] | None = None
+
+class TrailResponse(BaseModel):
+    id: str
+    name: str
+    region: str
+    lat: float
+    lng: float
+    difficulty: str
+    lengthKm: float
+    elevationM: int
+    durationH: int
+    vibe: str
+    blurb: str
+    alternativeTo: str | None = None
+    image: str
+    sustainability: float
+    sustainabilityNote: str
+    safetyStatus: str
+    safetyLabel: str
+    rainAlternativeId: str | None = None

@@ -4,7 +4,6 @@ import {
   api,
   streamChatMessage,
   type ImageAttachment,
-  type Message,
 } from "@/api/client";
 import {
   ASSISTANT_GREETING,
@@ -12,12 +11,17 @@ import {
   getTrailById,
   mockAssistantReply,
   parseTrailIdsFromAssistantText,
+  type Trail,
 } from "@/lib/trails";
 import { ItineraryCard } from "@/components/ItineraryCard";
 import {
   ArrowUp,
   Camera,
+  Cloud,
   Compass,
+  Database,
+  Loader2,
+  Mountain,
   Sparkles,
   X,
 } from "lucide-react";
@@ -31,6 +35,13 @@ const MAX_IMAGE_DATA_URL_LENGTH = 6_200_000;
 const THUMBNAIL_EDGE = 360;
 const TEXTAREA_MAX_HEIGHT = 160;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+const REASONING_STEPS = [
+  { icon: Database, label: "Searching Greek Trail Database…" },
+  { icon: Cloud, label: "Checking Weather via OpenWeatherMap…" },
+  { icon: Mountain, label: "Cross-referencing elevation & trail conditions…" },
+  { icon: Sparkles, label: "Curating hidden-gem matches…" },
+];
 
 type PendingPhoto = ImageAttachment & {
   previewUrl: string;
@@ -78,6 +89,7 @@ export function ChatPanel({
   const [streamingText, setStreamingText] = useState("");
   const [attachedPhoto, setAttachedPhoto] = useState<PendingPhoto | null>(null);
   const [isPhotoDragActive, setIsPhotoDragActive] = useState(false);
+  const [reasoningStep, setReasoningStep] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,6 +97,11 @@ export function ChatPanel({
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", threadId],
     queryFn: () => api.listMessages(threadId),
+  });
+
+  useQuery<Trail[]>({
+    queryKey: ["trails"],
+    queryFn: async () => (await fetch("/api/trails")).json(),
   });
 
   useEffect(() => {
@@ -107,6 +124,15 @@ export function ChatPanel({
     textarea.style.overflowY =
       textarea.scrollHeight > TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
   }, [input, attachedPhoto]);
+
+  useEffect(() => {
+    if (!pending) return;
+    setReasoningStep(0);
+    const id = setInterval(() => {
+      setReasoningStep((s) => (s + 1) % REASONING_STEPS.length);
+    }, 1100);
+    return () => clearInterval(id);
+  }, [pending]);
 
   // Externally-triggered assistant message (e.g. "Re-route for Rain")
   useEffect(() => {
@@ -306,6 +332,15 @@ export function ChatPanel({
       </div>
 
       <div className="border-t border-border bg-card/80 backdrop-blur">
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-300",
+            pending ? "max-h-14 opacity-100" : "max-h-0 opacity-0",
+          )}
+        >
+          <ReasoningBar step={reasoningStep} />
+        </div>
+
         <form onSubmit={handleSubmit} className="px-6 py-4">
           {attachedPhoto && (
             <div className="mx-auto mb-2 flex max-w-2xl items-center gap-3 rounded-xl border border-border bg-background px-3 py-2 shadow-[var(--shadow-soft)]">
@@ -390,6 +425,28 @@ export function ChatPanel({
             Greek local experiences. Suggestions are illustrative.
           </p>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function ReasoningBar({ step }: { step: number }) {
+  const { icon: Icon, label } = REASONING_STEPS[step % REASONING_STEPS.length];
+  return (
+    <div className="mx-auto flex max-w-2xl items-center gap-2.5 px-6 pb-1 pt-3">
+      <div className="relative grid size-6 place-items-center rounded-full bg-primary/10">
+        <Icon className="size-3 text-primary" />
+        <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
+      </div>
+      <div key={step} className="flex flex-1 items-center gap-2 animate-fade-in">
+        <span className="text-xs font-medium text-foreground">{label}</span>
+        <Loader2 className="size-3 animate-spin text-muted-foreground" />
+      </div>
+      <div className="h-1 w-20 overflow-hidden rounded-full bg-border">
+        <div
+          className="h-full rounded-full bg-[var(--gradient-aegean)] transition-all duration-500"
+          style={{ width: `${((step + 1) / REASONING_STEPS.length) * 100}%` }}
+        />
       </div>
     </div>
   );
@@ -504,9 +561,16 @@ function MessageBubble({
   const cleaned = match
     ? content.replace(TRAIL_CARD_MARKER, "").replace(/\n{3,}/g, "\n\n").trim()
     : content.replace(/\n{0,2}\[Photo attached:[^\]]+\]\s*$/i, "").trim();
-  const trails = trailIds
-    .map((id) => getTrailById(id))
-    .filter(Boolean);
+
+  const { data: serverTrails = [] } = useQuery<Trail[]>({
+    queryKey: ["trails"],
+    queryFn: async () => (await fetch("/api/trails")).json(),
+    enabled: trailIds.length > 0,
+  });
+
+  const trails: Trail[] = trailIds
+    .map((id) => serverTrails.find((t) => t.id === id) ?? getTrailById(id))
+    .filter((t): t is Trail => Boolean(t));
 
   return (
     <div
@@ -560,11 +624,7 @@ function MessageBubble({
         {trails.length > 0 && !streaming && (
           <div className="flex flex-col gap-2.5">
             {trails.map((t) => (
-              <ItineraryCard
-                key={t!.id}
-                trail={t!}
-                onPin={onPinTrail ?? (() => {})}
-              />
+              <ItineraryCard key={t.id} trail={t} onPin={onPinTrail ?? (() => {})} />
             ))}
           </div>
         )}
