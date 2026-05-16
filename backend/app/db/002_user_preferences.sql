@@ -1,4 +1,4 @@
--- Migration 002: user preferences (indexes on app_users.external_subject live in schema / 003).
+-- Migration 002: user preferences (full unique index on app_users.external_subject is in schema.sql and migration 003).
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
