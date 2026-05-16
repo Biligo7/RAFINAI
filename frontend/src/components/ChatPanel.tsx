@@ -85,8 +85,6 @@ export function ChatPanel({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
-  const [pending, setPending] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
   const [attachedPhoto, setAttachedPhoto] = useState<PendingPhoto | null>(null);
   const [isPhotoDragActive, setIsPhotoDragActive] = useState(false);
   const [reasoningStep, setReasoningStep] = useState(0);
@@ -107,13 +105,6 @@ export function ChatPanel({
   useEffect(() => {
     inputRef.current?.focus();
   }, [threadId]);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [messages, pending, streamingText]);
 
   useEffect(() => {
     const textarea = inputRef.current;
@@ -166,7 +157,6 @@ export function ChatPanel({
         qc.invalidateQueries({ queryKey: ["threads"] });
       }
 
-      setStreamingText("");
       const images = photo
         ? [
             {
@@ -183,9 +173,7 @@ export function ChatPanel({
           onOpen: () => {
             qc.invalidateQueries({ queryKey: ["messages", threadId] });
           },
-          onToken: (delta) => {
-            setStreamingText((prev) => prev + delta);
-          },
+          onToken: () => {},
         }, images);
 
         onAssistantTrails(parseTrailIdsFromAssistantText(full));
@@ -202,12 +190,6 @@ export function ChatPanel({
         }
         const reply = mockAssistantReply(text);
         onAssistantTrails(reply.trailIds);
-        setStreamingText("");
-        const chunks = reply.text.split(/(\s+)/);
-        for (const part of chunks) {
-          await new Promise((r) => setTimeout(r, 12));
-          setStreamingText((prev) => prev + part);
-        }
         await api.saveMessage(threadId, "assistant", reply.text);
       }
 
@@ -218,20 +200,24 @@ export function ChatPanel({
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["messages", threadId] });
-      setPending(false);
-      setStreamingText("");
       setTimeout(() => inputRef.current?.focus(), 0);
     },
   });
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages, send.isPending]);
 
   const submitText = (text: string, photoOverride?: PendingPhoto | null) => {
     const photo = photoOverride === undefined ? attachedPhoto : photoOverride;
     const trimmed = text.trim();
     const finalText = trimmed || (photo ? PHOTO_DEFAULT_PROMPT : "");
-    if (!finalText || pending) return;
+    if (!finalText || send.isPending) return;
     setInput("");
     setAttachedPhoto(null);
-    setPending(true);
     send.mutate({ text: finalText, photo });
   };
 
@@ -262,14 +248,14 @@ export function ChatPanel({
   };
 
   const handleComposerDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
-    if (pending || !hasDraggedFiles(e)) return;
+    if (send.isPending || !hasDraggedFiles(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setIsPhotoDragActive(true);
   };
 
   const handleComposerDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    if (pending || !hasDraggedFiles(e)) return;
+    if (send.isPending || !hasDraggedFiles(e)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
@@ -282,7 +268,7 @@ export function ChatPanel({
   };
 
   const handleComposerDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    if (pending) return;
+    if (send.isPending) return;
     e.preventDefault();
     e.stopPropagation();
     setIsPhotoDragActive(false);
@@ -296,7 +282,7 @@ export function ChatPanel({
     await attachPhotoFile(file);
   };
 
-  const showGreeting = messages.length === 0 && !pending;
+  const showGreeting = messages.length === 0 && !send.isPending;
 
   return (
     <div className="flex h-full flex-col bg-[var(--gradient-horizon)]">
@@ -319,14 +305,6 @@ export function ChatPanel({
                 onPinTrail={onPinTrail}
               />
             ))}
-            {pending && streamingText && (
-              <MessageBubble
-                role="assistant"
-                content={streamingText}
-                streaming
-                onPinTrail={onPinTrail}
-              />
-            )}
           </div>
         )}
       </div>
@@ -357,7 +335,7 @@ export function ChatPanel({
               <button
                 type="button"
                 onClick={() => setAttachedPhoto(null)}
-                disabled={pending}
+                disabled={send.isPending}
                 className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
                 aria-label="Remove photo"
                 title="Remove photo"
@@ -379,7 +357,7 @@ export function ChatPanel({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={pending}
+              disabled={send.isPending}
               className="grid size-9 shrink-0 place-items-center rounded-xl text-[var(--olive)] transition hover:bg-[var(--sand)] hover:text-primary disabled:opacity-40"
               aria-label="Upload landscape photo"
               title="Upload landscape · Photo-to-Trail"
@@ -413,7 +391,7 @@ export function ChatPanel({
             />
             <button
               type="submit"
-              disabled={pending || (!input.trim() && !attachedPhoto)}
+              disabled={send.isPending || (!input.trim() && !attachedPhoto)}
               className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Send"
             >
@@ -540,13 +518,11 @@ function MessageBubble({
   role,
   content,
   metadata,
-  streaming,
   onPinTrail,
 }: {
   role: "user" | "assistant";
   content: string;
   metadata?: Record<string, unknown> | null;
-  streaming?: boolean;
   onPinTrail?: (id: string) => void;
 }) {
   const isUser = role === "user";
@@ -616,12 +592,9 @@ function MessageBubble({
             )}
           >
             {renderMarkdownLite(cleaned)}
-            {streaming && (
-              <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse bg-primary/60" />
-            )}
           </div>
         )}
-        {trails.length > 0 && !streaming && (
+        {trails.length > 0 && (
           <div className="flex flex-col gap-2.5">
             {trails.map((t) => (
               <ItineraryCard key={t.id} trail={t} onPin={onPinTrail ?? (() => {})} />
