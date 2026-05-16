@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { LocalHostLogo } from "@/components/LocalHostLogo";
 import { toast } from "sonner";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,6 +37,7 @@ export default function LoginPage() {
           password,
         });
         if (error) throw error;
+        qc.clear();
         navigate("/", { replace: true });
       }
     } catch (err) {

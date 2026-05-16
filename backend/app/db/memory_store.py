@@ -21,6 +21,8 @@ def _now_iso() -> str:
 
 class MemoryStore:
     def __init__(self) -> None:
+        self._users_by_subject: dict[str, str] = {}
+        self._chat_owners: dict[str, str] = {}
         self._chats: dict[str, Chat] = {}
         self._messages: dict[str, Message] = {}
         self._feedback: dict[str, MessageFeedback] = {}
@@ -29,14 +31,25 @@ class MemoryStore:
 
     # --- chats ---
 
-    def list_chats(self) -> list[Chat]:
+    def get_or_create_user(self, external_subject: str, email: str | None = None) -> str:
+        existing = self._users_by_subject.get(external_subject)
+        if existing:
+            return existing
+        user_id = str(uuid.uuid4())
+        self._users_by_subject[external_subject] = user_id
+        return user_id
+
+    def list_chats(self, user_id: str) -> list[Chat]:
         return sorted(
-            [c for c in self._chats.values() if c.archivedAt is None],
+            [
+                c for c in self._chats.values()
+                if c.archivedAt is None and self._chat_owners.get(c.id) == user_id
+            ],
             key=lambda c: c.updatedAt,
             reverse=True,
         )
 
-    def create_chat(self, title: str, system_prompt: str | None = None) -> Chat:
+    def create_chat(self, title: str, system_prompt: str | None = None, user_id: str | None = None) -> Chat:
         chat = Chat(
             id=str(uuid.uuid4()),
             title=title,
@@ -45,13 +58,17 @@ class MemoryStore:
             updatedAt=_now_iso(),
         )
         self._chats[chat.id] = chat
+        if user_id is not None:
+            self._chat_owners[chat.id] = user_id
         return chat
 
-    def get_chat(self, chat_id: str) -> Chat | None:
+    def get_chat(self, chat_id: str, user_id: str | None = None) -> Chat | None:
+        if user_id is not None and self._chat_owners.get(chat_id) != user_id:
+            return None
         return self._chats.get(chat_id)
 
-    def update_chat(self, chat_id: str, title: str | None = None, system_prompt: Any = ...) -> Chat | None:
-        chat = self._chats.get(chat_id)
+    def update_chat(self, chat_id: str, title: str | None = None, system_prompt: Any = ..., user_id: str | None = None) -> Chat | None:
+        chat = self.get_chat(chat_id, user_id)
         if chat is None:
             return None
         data = chat.model_dump()
@@ -64,8 +81,8 @@ class MemoryStore:
         self._chats[chat_id] = updated
         return updated
 
-    def archive_chat(self, chat_id: str) -> None:
-        chat = self._chats.get(chat_id)
+    def archive_chat(self, chat_id: str, user_id: str | None = None) -> None:
+        chat = self.get_chat(chat_id, user_id)
         if chat is None:
             return
         data = chat.model_dump()
@@ -75,14 +92,21 @@ class MemoryStore:
 
     # --- messages ---
 
-    def list_messages(self, chat_id: str) -> list[Message]:
+    def list_messages(self, chat_id: str, user_id: str | None = None) -> list[Message]:
+        if user_id is not None and self._chat_owners.get(chat_id) != user_id:
+            return []
         return sorted(
             [m for m in self._messages.values() if m.chatId == chat_id],
             key=lambda m: m.createdAt,
         )
 
-    def get_message(self, message_id: str) -> Message | None:
-        return self._messages.get(message_id)
+    def get_message(self, message_id: str, user_id: str | None = None) -> Message | None:
+        message = self._messages.get(message_id)
+        if message is None:
+            return None
+        if user_id is not None and self._chat_owners.get(message.chatId) != user_id:
+            return None
+        return message
 
     def insert_message(
         self,
@@ -184,6 +208,8 @@ class MemoryStore:
         return ex
 
     def reset(self) -> None:
+        self._users_by_subject.clear()
+        self._chat_owners.clear()
         self._chats.clear()
         self._messages.clear()
         self._feedback.clear()

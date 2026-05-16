@@ -9,7 +9,7 @@ from app.logging import get_logger
 
 logger = get_logger("db.migrations")
 
-SCHEMA_VERSION = "001_initial"
+SCHEMA_VERSION = "002_user_scoped_chats"
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 

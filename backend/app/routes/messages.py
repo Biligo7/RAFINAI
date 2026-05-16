@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app.auth import get_request_user_id
 from app.db.repository import get_repository
 from app.models import ImageAttachment, SaveMessageRequest, SendMessageRequest
 from app.services.chat_service import generate_chat_response
@@ -16,20 +17,22 @@ router = APIRouter()
 
 
 @router.get("/api/chats/{chat_id}/messages")
-async def list_messages(chat_id: str):
+async def list_messages(chat_id: str, request: Request):
     repo = get_repository()
-    chat = await repo.get_chat(chat_id)
+    user_id = await get_request_user_id(request)
+    chat = await repo.get_chat(chat_id, user_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    messages = await repo.list_messages(chat_id)
+    messages = await repo.list_messages(chat_id, user_id)
     return {"messages": [m.model_dump() for m in messages]}
 
 
 @router.post("/api/chats/{chat_id}/messages/save")
-async def save_message(chat_id: str, body: SaveMessageRequest):
+async def save_message(chat_id: str, body: SaveMessageRequest, request: Request):
     """Insert a single message (user or assistant) without triggering AI."""
     repo = get_repository()
-    chat = await repo.get_chat(chat_id)
+    user_id = await get_request_user_id(request)
+    chat = await repo.get_chat(chat_id, user_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     msg = await repo.insert_message(chat_id, body.role, body.content)
@@ -39,7 +42,8 @@ async def save_message(chat_id: str, body: SaveMessageRequest):
 @router.post("/api/chats/{chat_id}/messages")
 async def send_message(chat_id: str, body: SendMessageRequest, request: Request):
     repo = get_repository()
-    chat = await repo.get_chat(chat_id)
+    user_id = await get_request_user_id(request)
+    chat = await repo.get_chat(chat_id, user_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
 
@@ -64,6 +68,7 @@ async def send_message(chat_id: str, body: SendMessageRequest, request: Request)
         try:
             result = await generate_chat_response(
                 chat_id=chat_id,
+                user_id=user_id,
                 user_message=user_message,
                 image_attachments=body.images,
                 request_id=request_id,

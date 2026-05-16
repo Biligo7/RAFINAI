@@ -23,58 +23,65 @@ class Repository:
     def __init__(self, use_sql: bool) -> None:
         self._use_sql = use_sql
 
+    async def get_or_create_user(self, external_subject: str, email: str | None = None) -> str:
+        if self._use_sql:
+            from app.db.queries import get_or_create_app_user
+            return await get_or_create_app_user(external_subject, email)
+        from app.db.memory_store import memory
+        return memory.get_or_create_user(external_subject, email)
+
     # ---- Chats ----
 
-    async def list_chats(self) -> list[Chat]:
+    async def list_chats(self, user_id: str) -> list[Chat]:
         if self._use_sql:
             from app.db.queries import list_chats
-            return await list_chats()
+            return await list_chats(user_id)
         from app.db.memory_store import memory
-        return memory.list_chats()
+        return memory.list_chats(user_id)
 
-    async def create_chat(self, title: str, system_prompt: str | None = None) -> Chat:
+    async def create_chat(self, title: str, system_prompt: str | None = None, user_id: str | None = None) -> Chat:
         if self._use_sql:
             from app.db.queries import create_chat
-            return await create_chat(title, system_prompt)
+            return await create_chat(title, system_prompt, user_id)
         from app.db.memory_store import memory
-        return memory.create_chat(title, system_prompt)
+        return memory.create_chat(title, system_prompt, user_id)
 
-    async def get_chat(self, chat_id: str) -> Chat | None:
+    async def get_chat(self, chat_id: str, user_id: str | None = None) -> Chat | None:
         if self._use_sql:
             from app.db.queries import get_chat
-            return await get_chat(chat_id)
+            return await get_chat(chat_id, user_id)
         from app.db.memory_store import memory
-        return memory.get_chat(chat_id)
+        return memory.get_chat(chat_id, user_id)
 
-    async def update_chat(self, chat_id: str, title: str | None = None, system_prompt: Any = ...) -> Chat | None:
+    async def update_chat(self, chat_id: str, title: str | None = None, system_prompt: Any = ..., user_id: str | None = None) -> Chat | None:
         if self._use_sql:
             from app.db.queries import update_chat
-            return await update_chat(chat_id, title, system_prompt)
+            return await update_chat(chat_id, title, system_prompt, user_id)
         from app.db.memory_store import memory
-        return memory.update_chat(chat_id, title, system_prompt)
+        return memory.update_chat(chat_id, title, system_prompt, user_id)
 
-    async def archive_chat(self, chat_id: str) -> None:
+    async def archive_chat(self, chat_id: str, user_id: str | None = None) -> None:
         if self._use_sql:
             from app.db.queries import archive_chat
-            return await archive_chat(chat_id)
+            return await archive_chat(chat_id, user_id)
         from app.db.memory_store import memory
-        return memory.archive_chat(chat_id)
+        return memory.archive_chat(chat_id, user_id)
 
     # ---- Messages ----
 
-    async def list_messages(self, chat_id: str) -> list[Message]:
+    async def list_messages(self, chat_id: str, user_id: str | None = None) -> list[Message]:
         if self._use_sql:
             from app.db.queries import list_messages
-            return await list_messages(chat_id)
+            return await list_messages(chat_id, user_id)
         from app.db.memory_store import memory
-        return memory.list_messages(chat_id)
+        return memory.list_messages(chat_id, user_id)
 
-    async def get_message(self, message_id: str) -> Message | None:
+    async def get_message(self, message_id: str, user_id: str | None = None) -> Message | None:
         if self._use_sql:
             from app.db.queries import get_message
-            return await get_message(message_id)
+            return await get_message(message_id, user_id)
         from app.db.memory_store import memory
-        return memory.get_message(message_id)
+        return memory.get_message(message_id, user_id)
 
     async def insert_message(
         self,

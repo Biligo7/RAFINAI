@@ -38,6 +38,8 @@ Open <http://localhost:8080>. Put AI settings in **`backend/.env`** (created fro
 
 ## Supabase authentication
 
+Chat history is scoped to the signed-in account. The frontend sends the Supabase session JWT to the backend, the backend maps that subject to `app_users`, and each `chats` row is stored with the matching `user_id`. When a different account signs in, `/api/chats` only returns that account's conversations.
+
 Full setup (project creation, dashboard toggles, SQL for `profiles`, local email confirmation): **[`docs/supabase-setup.md`](docs/supabase-setup.md)**.
 
 The frontend uses **[`@supabase/supabase-js`](https://github.com/supabase/supabase-js)** only for **sign-in / sign-out and session handling** (email + password). Chats, messages, and streaming still go through the **Python backend** and your **Postgres** (`docker-compose` or Azure), not through Supabase’s database tables for chat.

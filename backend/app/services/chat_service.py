@@ -28,6 +28,7 @@ class StreamingChatResult:
 async def generate_chat_response(
     *,
     chat_id: str,
+    user_id: str,
     user_message: Message,
     image_attachments: list[ImageAttachment] | None = None,
     request_id: str,
@@ -37,11 +38,11 @@ async def generate_chat_response(
     repo = get_repository()
     provider = get_ai_provider()
 
-    chat = await repo.get_chat(chat_id)
+    chat = await repo.get_chat(chat_id, user_id)
     if chat is None:
         raise RuntimeError(f"Chat {chat_id} not found")
 
-    history = await repo.list_messages(chat_id)
+    history = await repo.list_messages(chat_id, user_id)
 
     system_prompt = chat.systemPrompt or settings.ai_system_prompt
     recent = history[-settings.ai_max_history_messages:]

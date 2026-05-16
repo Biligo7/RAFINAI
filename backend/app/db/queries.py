@@ -103,42 +103,89 @@ def _example_from_row(r: asyncpg.Record) -> TrainingExample:
 
 # ---- Chats ----
 
-async def list_chats() -> list[Chat]:
+async def get_or_create_app_user(external_subject: str, email: str | None = None) -> str:
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT id FROM app_users WHERE external_subject = $1",
+        external_subject,
+    )
+    if row:
+        if email:
+            await pool.execute(
+                "UPDATE app_users SET email = $2, updated_at = now() WHERE id = $1",
+                row["id"],
+                email,
+            )
+        return str(row["id"])
+
+    uid = str(uuid.uuid4())
+    try:
+        await pool.execute(
+            """INSERT INTO app_users (id, external_subject, email)
+               VALUES ($1, $2, $3)""",
+            uid,
+            external_subject,
+            email,
+        )
+    except asyncpg.UniqueViolationError:
+        row = await pool.fetchrow(
+            "SELECT id FROM app_users WHERE external_subject = $1",
+            external_subject,
+        )
+        if row:
+            return str(row["id"])
+        raise
+    return uid
+
+
+async def list_chats(user_id: str) -> list[Chat]:
     pool = await get_pool()
     rows = await pool.fetch(
         """SELECT id, user_id, title, system_prompt, model, temperature,
                   archived_at, created_at, updated_at
-           FROM chats WHERE archived_at IS NULL
-           ORDER BY updated_at DESC"""
+           FROM chats
+           WHERE archived_at IS NULL AND user_id = $1
+           ORDER BY updated_at DESC""",
+        user_id,
     )
     return [_chat_from_row(r) for r in rows]
 
 
-async def create_chat(title: str, system_prompt: str | None = None) -> Chat:
+async def create_chat(title: str, system_prompt: str | None = None, user_id: str | None = None) -> Chat:
     pool = await get_pool()
     cid = str(uuid.uuid4())
     await pool.execute(
-        "INSERT INTO chats (id, title, system_prompt) VALUES ($1, $2, $3)",
-        cid, title, system_prompt,
+        "INSERT INTO chats (id, user_id, title, system_prompt) VALUES ($1, $2, $3, $4)",
+        cid, user_id, title, system_prompt,
     )
-    chat = await get_chat(cid)
+    chat = await get_chat(cid, user_id)
     if chat is None:
         raise RuntimeError("Chat insert succeeded but row not found")
     return chat
 
 
-async def get_chat(chat_id: str) -> Chat | None:
+async def get_chat(chat_id: str, user_id: str | None = None) -> Chat | None:
     pool = await get_pool()
+    if user_id is None:
+        row = await pool.fetchrow(
+            """SELECT id, user_id, title, system_prompt, model, temperature,
+                      archived_at, created_at, updated_at
+               FROM chats WHERE id = $1""",
+            chat_id,
+        )
+        return _chat_from_row(row) if row else None
+
     row = await pool.fetchrow(
         """SELECT id, user_id, title, system_prompt, model, temperature,
                   archived_at, created_at, updated_at
-           FROM chats WHERE id = $1""",
+           FROM chats WHERE id = $1 AND user_id = $2""",
         chat_id,
+        user_id,
     )
     return _chat_from_row(row) if row else None
 
 
-async def update_chat(chat_id: str, title: str | None = None, system_prompt: Any = ...) -> Chat | None:
+async def update_chat(chat_id: str, title: str | None = None, system_prompt: Any = ..., user_id: str | None = None) -> Chat | None:
     pool = await get_pool()
     set_parts = ["updated_at = now()"]
     values: list[Any] = []
@@ -153,42 +200,80 @@ async def update_chat(chat_id: str, title: str | None = None, system_prompt: Any
         set_parts.append(f"system_prompt = ${idx}")
     idx += 1
     values.append(chat_id)
+    where = f"id = ${idx}"
+    if user_id is not None:
+        idx += 1
+        values.append(user_id)
+        where += f" AND user_id = ${idx}"
     await pool.execute(
-        f"UPDATE chats SET {', '.join(set_parts)} WHERE id = ${idx}",
+        f"UPDATE chats SET {', '.join(set_parts)} WHERE {where}",
         *values,
     )
-    return await get_chat(chat_id)
+    return await get_chat(chat_id, user_id)
 
 
-async def archive_chat(chat_id: str) -> None:
+async def archive_chat(chat_id: str, user_id: str | None = None) -> None:
     pool = await get_pool()
-    await pool.execute(
-        "UPDATE chats SET archived_at = now(), updated_at = now() WHERE id = $1",
-        chat_id,
-    )
+    if user_id is None:
+        await pool.execute(
+            "UPDATE chats SET archived_at = now(), updated_at = now() WHERE id = $1",
+            chat_id,
+        )
+    else:
+        await pool.execute(
+            """UPDATE chats SET archived_at = now(), updated_at = now()
+               WHERE id = $1 AND user_id = $2""",
+            chat_id,
+            user_id,
+        )
 
 
 # ---- Messages ----
 
-async def list_messages(chat_id: str) -> list[Message]:
+async def list_messages(chat_id: str, user_id: str | None = None) -> list[Message]:
     pool = await get_pool()
+    if user_id is None:
+        rows = await pool.fetch(
+            """SELECT id, chat_id, role, content, token_count, provider, model,
+                      latency_ms, error_code, metadata_json, created_at
+               FROM messages WHERE chat_id = $1
+               ORDER BY created_at ASC""",
+            chat_id,
+        )
+        return [_message_from_row(r) for r in rows]
+
     rows = await pool.fetch(
-        """SELECT id, chat_id, role, content, token_count, provider, model,
-                  latency_ms, error_code, metadata_json, created_at
-           FROM messages WHERE chat_id = $1
-           ORDER BY created_at ASC""",
+        """SELECT m.id, m.chat_id, m.role, m.content, m.token_count, m.provider, m.model,
+                  m.latency_ms, m.error_code, m.metadata_json, m.created_at
+           FROM messages m
+           JOIN chats c ON c.id = m.chat_id
+           WHERE m.chat_id = $1 AND c.user_id = $2
+           ORDER BY m.created_at ASC""",
         chat_id,
+        user_id,
     )
     return [_message_from_row(r) for r in rows]
 
 
-async def get_message(message_id: str) -> Message | None:
+async def get_message(message_id: str, user_id: str | None = None) -> Message | None:
     pool = await get_pool()
+    if user_id is None:
+        row = await pool.fetchrow(
+            """SELECT id, chat_id, role, content, token_count, provider, model,
+                      latency_ms, error_code, metadata_json, created_at
+               FROM messages WHERE id = $1""",
+            message_id,
+        )
+        return _message_from_row(row) if row else None
+
     row = await pool.fetchrow(
-        """SELECT id, chat_id, role, content, token_count, provider, model,
-                  latency_ms, error_code, metadata_json, created_at
-           FROM messages WHERE id = $1""",
+        """SELECT m.id, m.chat_id, m.role, m.content, m.token_count, m.provider, m.model,
+                  m.latency_ms, m.error_code, m.metadata_json, m.created_at
+           FROM messages m
+           JOIN chats c ON c.id = m.chat_id
+           WHERE m.id = $1 AND c.user_id = $2""",
         message_id,
+        user_id,
     )
     return _message_from_row(row) if row else None
 

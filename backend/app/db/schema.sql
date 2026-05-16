@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS app_users (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS ix_app_users_external_subject
+    ON app_users(external_subject)
+    WHERE external_subject IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS chats (
     id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id uuid NULL REFERENCES app_users(id),
@@ -82,6 +86,7 @@ CREATE TABLE IF NOT EXISTS app_events (
 );
 
 CREATE INDEX IF NOT EXISTS ix_chats_updated_at ON chats(updated_at DESC);
+CREATE INDEX IF NOT EXISTS ix_chats_user_updated_at ON chats(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS ix_messages_chat_created_at ON messages(chat_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS ix_training_examples_dataset ON training_examples(dataset_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_app_events_created_at ON app_events(created_at DESC);

@@ -38,6 +38,7 @@ export function ThreadSidebar({
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    qc.clear();
     navigate("/login");
   };
 
@@ -49,7 +50,7 @@ export function ThreadSidebar({
         <div>
           <div className="text-sm font-semibold tracking-tight">Local Host</div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/60">
-            Authentic Greek AI
+            Authentic Greek Experience
           </div>
         </div>
       </div>
