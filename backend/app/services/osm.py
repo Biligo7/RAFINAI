@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import math
@@ -15,14 +16,18 @@ from app.logging import get_logger
 
 logger = get_logger("services.osm")
 
-# Greece bounding box (covers mainland + islands)
 _GREECE_BBOX = "(34.5,19.3,42.0,30.0)"
 
+# Broader query: named hiking route relations, plus named paths/tracks with
+# hiking-related tags. This returns 50-200+ trails instead of ~11.
 _OVERPASS_QUERY = f"""
-[out:json][timeout:60];
+[out:json][timeout:90];
 (
   relation["route"="hiking"]["name"]{_GREECE_BBOX};
-  way["highway"="path"]["sac_scale"]{_GREECE_BBOX};
+  relation["route"="foot"]["name"]{_GREECE_BBOX};
+  way["highway"="path"]["name"]{_GREECE_BBOX};
+  way["highway"="footway"]["name"]["foot"="designated"]{_GREECE_BBOX};
+  way["highway"="track"]["sac_scale"]["name"]{_GREECE_BBOX};
 );
 out center tags;
 """
@@ -36,7 +41,6 @@ _DIFFICULTY_MAP = {
     "difficult_alpine_hiking": "Strenuous",
 }
 
-# Naismith's rule: ~4 km/h + 1 h per 600 m elevation
 _SPEED_KMH = 4.0
 _ELEVATION_PENALTY_H_PER_M = 1.0 / 600
 
@@ -45,7 +49,12 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     d_lat = math.radians(lat2 - lat1)
     d_lon = math.radians(lon2 - lon1)
-    a = math.sin(d_lat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(d_lon / 2) ** 2
+    )
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
@@ -54,19 +63,37 @@ def _stable_id(osm_type: str, osm_id: int) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 
-def _region_from_tags(tags: dict[str, str]) -> str:
-    parts: list[str] = []
-    for key in ("place", "is_in", "is_in:region", "addr:state"):
+_GREEK_REGION_HINTS: list[tuple[tuple[float, float, float, float], str]] = [
+    ((34.8, 23.4, 35.6, 26.4), "Crete"),
+    ((39.5, 19.3, 39.9, 20.3), "Corfu, Ionian Islands"),
+    ((37.5, 20.3, 38.9, 21.0), "Ionian Islands"),
+    ((36.3, 25.0, 37.1, 26.0), "Cyclades"),
+    ((36.0, 27.0, 37.0, 28.5), "Dodecanese"),
+    ((38.5, 25.5, 39.5, 26.8), "Lesbos, North Aegean"),
+    ((39.6, 20.5, 40.0, 21.5), "Epirus"),
+    ((37.0, 21.5, 38.5, 23.0), "Peloponnese"),
+    ((38.5, 21.5, 39.5, 23.0), "Central Greece"),
+    ((39.0, 21.5, 40.5, 23.0), "Thessaly"),
+    ((40.0, 21.5, 41.5, 24.5), "Macedonia"),
+    ((40.5, 24.0, 41.8, 26.5), "Thrace"),
+    ((37.8, 23.5, 38.2, 24.0), "Attica"),
+]
+
+
+def _guess_region(lat: float, lng: float, tags: dict[str, str]) -> str:
+    for key in ("is_in", "is_in:region", "addr:state", "place"):
         val = tags.get(key)
         if val:
-            parts.append(val)
-            break
-    return parts[0] if parts else "Greece"
+            return val
+    for (min_lat, min_lng, max_lat, max_lng), name in _GREEK_REGION_HINTS:
+        if min_lat <= lat <= max_lat and min_lng <= lng <= max_lng:
+            return name
+    return "Greece"
 
 
 def _parse_element(el: dict[str, Any]) -> dict[str, Any] | None:
     tags = el.get("tags", {})
-    name = tags.get("name") or tags.get("name:en")
+    name = tags.get("name:en") or tags.get("name")
     if not name:
         return None
 
@@ -79,23 +106,25 @@ def _parse_element(el: dict[str, Any]) -> dict[str, Any] | None:
     osm_type = el.get("type", "way")
     osm_id = el.get("id", 0)
 
-    sac = tags.get("sac_scale", "hiking")
+    sac = tags.get("sac_scale", "")
     difficulty = _DIFFICULTY_MAP.get(sac, "Moderate")
 
     length_km = 0.0
-    dist_tag = tags.get("distance")
-    if dist_tag:
-        try:
-            length_km = float(dist_tag.replace("km", "").strip())
-        except ValueError:
-            pass
+    for key in ("distance", "length"):
+        dist_tag = tags.get(key)
+        if dist_tag:
+            try:
+                length_km = float(dist_tag.replace("km", "").replace(",", ".").strip())
+                break
+            except ValueError:
+                pass
 
     elevation_m = 0.0
-    for key in ("ele", "ascent", "elevation"):
+    for key in ("ascent", "ele", "elevation"):
         val = tags.get(key)
         if val:
             try:
-                elevation_m = float(val.replace("m", "").strip())
+                elevation_m = float(val.replace("m", "").replace(",", ".").strip())
                 break
             except ValueError:
                 pass
@@ -103,14 +132,23 @@ def _parse_element(el: dict[str, Any]) -> dict[str, Any] | None:
     duration_h = 0.0
     if length_km > 0:
         duration_h = round(length_km / _SPEED_KMH + elevation_m * _ELEVATION_PENALTY_H_PER_M, 1)
+    elif elevation_m > 0:
+        duration_h = round(elevation_m * _ELEVATION_PENALTY_H_PER_M + 1, 1)
 
-    blurb = tags.get("description") or tags.get("description:en") or ""
+    blurb = tags.get("description:en") or tags.get("description") or ""
+    if not blurb:
+        parts: list[str] = []
+        if tags.get("surface"):
+            parts.append(f"Surface: {tags['surface']}")
+        if tags.get("trail_visibility"):
+            parts.append(f"Visibility: {tags['trail_visibility']}")
+        blurb = ". ".join(parts)
 
     return {
         "id": _stable_id(osm_type, osm_id),
         "osm_id": osm_id,
         "name": name,
-        "region": _region_from_tags(tags),
+        "region": _guess_region(float(lat), float(lng), tags),
         "lat": float(lat),
         "lng": float(lng),
         "difficulty": difficulty,
@@ -124,7 +162,7 @@ def _parse_element(el: dict[str, Any]) -> dict[str, Any] | None:
 
 async def fetch_trails_from_osm() -> list[dict[str, Any]]:
     """Query the Overpass API and return parsed trail dicts."""
-    async with httpx.AsyncClient(timeout=90) as client:
+    async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(
             settings.overpass_url,
             data={"data": _OVERPASS_QUERY},
@@ -143,7 +181,7 @@ async def fetch_trails_from_osm() -> list[dict[str, Any]]:
             seen_ids.add(parsed["id"])
             trails.append(parsed)
 
-    await logger.ainfo("Parsed unique trails", count=len(trails))
+    await logger.ainfo("Parsed unique named trails", count=len(trails))
     return trails
 
 
@@ -171,9 +209,7 @@ async def upsert_cached_trails(pool, trails: list[dict[str, Any]]) -> None:
 
 async def get_cached_trails(pool) -> list[dict[str, Any]]:
     """Return all cached trails, ordered by name."""
-    rows = await pool.fetch(
-        "SELECT * FROM cached_trails ORDER BY name"
-    )
+    rows = await pool.fetch("SELECT * FROM cached_trails ORDER BY name")
     return [dict(r) for r in rows]
 
 
