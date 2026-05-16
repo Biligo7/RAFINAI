@@ -32,10 +32,25 @@ class MockProvider:
             None,
         )
         preface = ""
+        choices = ["vikos-gorge", "menalon", "samaria-east"]
         if last_user:
             snippet = _text_preview(last_user.content)
             preface = f'Mock reply to: "{snippet}"\n\n'
-        full = preface + CANNED_RESPONSE
+            content_lower = last_user.content.lower()
+            if "olympus" in content_lower:
+                choices = ["olympus-enipeas"]
+            elif "santorini" in content_lower:
+                choices = ["tilos-loop"]
+            elif "mykonos" in content_lower:
+                choices = ["menalon"]
+            elif "meteora" in content_lower:
+                choices = ["vikos-gorge"]
+            elif "samaria" in content_lower or "crete" in content_lower:
+                choices = ["samaria-east"]
+            elif "zagori" in content_lower or "epirus" in content_lower:
+                choices = ["vikos-gorge"]
+        trails_marker = f"\n\n[[trails:{','.join(choices)}]]\n\n"
+        full = preface + CANNED_RESPONSE + trails_marker
         for token in full.split(" "):
             if not token:
                 continue

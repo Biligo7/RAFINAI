@@ -1,3 +1,4 @@
+# backend/app/services/chat_service.py
 """Chat completion orchestration — streams tokens from the AI provider."""
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from app.logging import get_logger
 from app.models import ImageAttachment, Message
 from app.services.ai.base import ChatCompletionMessage
 from app.services.ai.client import get_ai_provider
+from app.services.sustainability import evaluate_sustainability_constraints
 
 logger = get_logger("services.chat")
 
@@ -23,6 +25,79 @@ class StreamingChatResult:
     assistant_message_id: str
     full: str
     latency_ms: int
+
+
+async def extract_location_with_ai(user_input: str, provider, request_id: str) -> str | None:
+    """Pro Pipeline: Dynamically handles zero-token testing in mock mode,
+    then automatically engages the real LLM when credentials are provided.
+    """
+    clean_input = user_input.lower().strip()
+
+    # =========================================================================
+    # 🎯 ZERO-TOKEN HACKATHON DEBUGGER (Simulates Stage 1 AI Parser)
+    # =========================================================================
+    if settings.ai_provider == "mock":
+        if any(x in clean_input for x in ["olympus", "olymi", "olimbos"]):
+            return "Mount Olympus"
+        elif "metsovo" in clean_input:
+            return "Metsovo"
+        elif "zagori" in clean_input:
+            return "Zagori"
+        elif "crete" in clean_input:
+            return "Crete"
+        return None
+    # =========================================================================
+
+    # 🚀 PRODUCTION STAGE 1: Real LLM Named Entity Recognition
+    extraction_prompt = (
+        "You are a strict geographic entity extraction utility for a Greek hiking application. "
+        "Identify the main mountain, town, or trail network. Fix abbreviations (e.g. 'Mt. Olympus' -> 'Mount Olympus'). "
+        "Output ONLY the raw clean name, or 'None'."
+    )
+
+    try:
+        messages = [
+            ChatCompletionMessage(role="system", content=extraction_prompt),
+            ChatCompletionMessage(role="user", content=f"Extract from: {user_input}")
+        ]
+        
+        raw_response = await _get_chat_completion(
+            provider,
+            messages=messages,
+            model=settings.ai_model,
+            temperature=0.0,
+            max_tokens=20,
+            request_id=request_id,
+        )
+        
+        clean_result = raw_response.strip().replace('"', '').replace("'", "")
+        if clean_result.lower() == "none" or not clean_result:
+            return None
+        return clean_result
+    except Exception as e:
+        logger.error("ai.location.extraction.failed", error=str(e))
+        return None
+
+
+async def _get_chat_completion(
+    provider,
+    *,
+    messages: list[ChatCompletionMessage],
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    request_id: str,
+) -> str:
+    output = ""
+    async for token in provider.stream_chat_completion(
+        messages=messages,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        request_id=request_id,
+    ):
+        output += token
+    return output
 
 
 async def generate_chat_response(
@@ -56,8 +131,131 @@ async def generate_chat_response(
                 + user_prefs["preferences_text"]
             )
 
-    recent = history[-settings.ai_max_history_messages:]
+    grounding_context = ""
+    user_input_lower = user_message.content.lower() if user_message and user_message.content else ""
 
+    detected_location = None
+    overtourism_redirect = False
+
+    # 1. Run Dynamic Eurostat Sustainability Check Layer
+    sustainability_alert = evaluate_sustainability_constraints(user_input_lower)
+
+    if sustainability_alert and sustainability_alert["is_overrun"]:
+        grounding_context += (
+            f"\n[SUSTAINABILITY CONSTRAINT ACTIVATED]:\n"
+            f"- Region: {sustainability_alert['region_name']}\n"
+            f"- Eurostat Tourism Intensity: {sustainability_alert['tourism_intensity_score']} nights/capita\n"
+            f"- Water Stress Rating: {sustainability_alert['water_stress_index']}/100\n"
+            f"- Infrastructural Load: {sustainability_alert['infrastructure_strain']}/100\n"
+            f"- Environmental Assessment: {sustainability_alert['educational_rationale']}\n"
+            f"- MANDATORY POLICY ACTION: Warmly inform the user about these environmental statistics "
+            f"and dynamically pivot their interest to our verified sustainable alternative: {sustainability_alert['alternative_pivot']}.")
+        detected_location = sustainability_alert["alternative_pivot"].split(" ")[0] 
+        overtourism_redirect = True
+    
+    # 2. Automated Location Entity Extraction
+    if not overtourism_redirect:
+        trigger_keywords = ["hike", "climb", "visit", "trail", "near", "in", "at", "about", "for", "weather"]
+        words = user_message.content.split() if user_message and user_message.content else []
+        
+        for i, word in enumerate(words):
+            clean_word = word.lower().strip("?,.!")
+            if clean_word in trigger_keywords and i + 1 < len(words):
+                potential_entity = " ".join([w.strip("?,.!") for w in words[i+1:i+3]])
+                if potential_entity.lower() not in ["a", "the", "it", "this", "my", "your"]:
+                    detected_location = potential_entity
+                    break
+                    
+    if not overtourism_redirect:
+        detected_location = await extract_location_with_ai(
+            user_message.content, 
+            provider, 
+            request_id
+        )
+        
+    # 3. Execute Unified Pure-API Live Data Ingestion Pipeline
+    if detected_location:
+        detected_location = (
+            detected_location
+            .replace("Mountain", "Mount")
+            .replace("mountain", "Mount")
+            .replace("Mt.", "Mount")
+            .replace("mt.", "Mount")
+            .strip()
+        )
+        try:
+            from app.services.hikers_data import (
+                fetch_location_coordinates, 
+                fetch_live_weather, 
+                fetch_osm_trails,
+                fetch_ors_routing, 
+                fetch_inaturalist_biodiversity, 
+                fetch_reddit_trail_reports
+            )
+            
+            logger.info("executing.complete.makeathon.pipeline", chat_id=chat_id, location=detected_location)
+            coordinates = await fetch_location_coordinates(detected_location)
+            
+            if coordinates:
+                lat, lon = coordinates
+                weather = await fetch_live_weather(lat, lon)
+                trails = await fetch_osm_trails(detected_location)
+                routing = await fetch_ors_routing(lat, lon)
+                fauna = await fetch_inaturalist_biodiversity(lat, lon)
+                reddit_reports = await fetch_reddit_trail_reports(detected_location)
+                
+                grounding_context += f"\n[AUTOMATED REAL-TIME GROUNDING MATRIX FOR: {detected_location.upper()}]:\n"
+                grounding_context += f"- Geographic Coordinates: Latitude {lat}, Longitude {lon}\n"
+                grounding_context += f"- Current Safety Conditions: {weather['temp']}°C, {weather['condition']}\n"
+                grounding_context += f"- Wind Velocity: {weather['wind_speed']} m/s\n"
+                grounding_context += (
+                    f"- Route Profiles: Total Distance = {routing['distance_km']} km | "
+                    f"Est. Duration = {routing['duration_mins']} mins | "
+                    f"Net Elevation Ascent = +{routing['ascent_m']} m\n"
+                )
+                
+                if fauna:
+                    grounding_context += f"- Local Ecosystem Observations (iNaturalist): Native species spotted near trail: {', '.join(fauna)}\n"
+                
+                if reddit_reports:
+                    grounding_context += "- Recent Community Field Intelligence (Reddit/Forums):\n"
+                    for report in reddit_reports:
+                        grounding_context += f"  * Live Forum Log: \"{report}\"\n"
+                
+                if not weather.get("is_safe", True):
+                    grounding_context += (
+                        "\n[CRITICAL SAFETY WARNING]: Extreme weather/wind vectors detected for this trek. "
+                        "You MUST issue a prominent, clear safety warning and recommend avoiding this route right now.\n"
+                    )
+                else:
+                    grounding_context += "- Route Safety Clearance: Weather verified stable for hiking.\n"
+                
+                if trails:
+                    grounding_context += "\n[VERIFIED OPENSTREETMAP TRACKS FOR REGION]:\n"
+                    for idx, trail in enumerate(trails[:3]):
+                        t_name = trail.get("name", f"Local path near {detected_location}")
+                        t_diff = trail.get("difficulty", "Moderate")
+                        # 🔧 FIXED: Explicitly supply the active ID so the LLM can use it for cards
+                        t_id = trail.get("id") or str(t_name.lower().replace(" ", "-"))
+                        grounding_context += f"  * Path {idx+1}: Name='{t_name}' (ID: '{t_id}', Difficulty: '{t_diff}')\n"
+                        
+        except Exception as err:
+            logger.error("automated.grounding.pipeline.failed", error=str(err), chat_id=chat_id)
+
+    # 🔧 INJECT RE-ORDERED DIRECTIVES AND CONTEXT DATA AT THE BASE
+    if grounding_context:
+        system_prompt += f"\n\nCore Reality Context Matrix:{grounding_context}\n"
+        
+    system_prompt += (
+        "\n\n[CRITICAL GROUNDING DIRECTIVES]:"
+        "\n1. You MUST explicitly quote the exact weather numbers (temp, condition, wind) provided in the 'Core Reality Context Matrix'."
+        "\n2. You MUST state the exact route distance (km), duration, and elevation ascent numbers from OpenRouteService."
+        "\n3. You MUST state the precise iNaturalist plant/animal species names provided in the context matrix."
+        "\n4. Do NOT use general phrases like 'check weather forecasts before your hike'. State what the live weather reads right now."
+        "\n5. When referencing any trail path, you MUST append its exact string token marker in the precise format [[trails:TRAIL_ID]] at the absolute end of your speech bubble so the user's interactive map functions instantly."
+    )
+
+    recent = history[-settings.ai_max_history_messages:]
     messages: list[ChatCompletionMessage] = [
         ChatCompletionMessage(role="system", content=system_prompt),
     ]
@@ -78,7 +276,6 @@ async def generate_chat_response(
 
     start = time.monotonic()
     full = ""
-
     chat_model = settings.resolved_chat_model
 
     try:
@@ -114,8 +311,27 @@ async def generate_chat_response(
             logger.error("Failed to persist failed assistant message")
         raise
 
-    latency_ms = int((time.monotonic() - start) * 1000)
+    # 🚀 AUTOMATED ZERO-MOCK STREAMING TRAILER APPRENDER
+    if "[[trails:" not in full and detected_location:
+        try:
+            from app.services.hikers_data import fetch_live_osm_trails_network
+            live_network = await fetch_live_osm_trails_network(popular_only=False)
+            normalized = detected_location.lower()
+            matched_ids = []
+            for t in live_network:
+                if normalized in t.get("name", "").lower() or normalized in t.get("region", "").lower():
+                    matched_ids.append(t["id"])
+                    break
+            if not matched_ids and live_network:
+                matched_ids.append(live_network[0]["id"])
+            if matched_ids:
+                appended_token = f"\n\n[[trails:{','.join(matched_ids)}]]"
+                full += appended_token
+                on_token(appended_token)
+        except Exception:
+            pass
 
+    latency_ms = int((time.monotonic() - start) * 1000)
     await repo.insert_message(
         chat_id, "assistant", full,
         message_id=assistant_message_id,

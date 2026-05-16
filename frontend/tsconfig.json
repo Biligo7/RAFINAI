@@ -18,6 +18,7 @@
     "noEmit": true,
     "useDefineForClassFields": true,
     "types": ["vite/client"],
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
