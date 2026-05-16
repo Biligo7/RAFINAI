@@ -47,9 +47,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-2">
+    <div className="grid min-h-screen grid-cols-1 bg-background lg:grid-cols-2">
       {/* Brand panel */}
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-[var(--gradient-aegean)] p-12 text-primary-foreground lg:flex">
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-background p-12 text-foreground lg:flex">
         <div className="flex items-center gap-3">
           <PathfinderLogo className="h-10 w-10" />
           <div>
@@ -67,9 +67,9 @@ export default function LoginPage() {
             <br />
             Walk Greece's hidden 300.
           </h1>
-          <p className="max-w-md text-base leading-relaxed text-primary-foreground/80">
+          <p className="max-w-md text-base leading-relaxed text-muted-foreground">
             36 million tourists overwhelm a handful of icons. We route you to
-            the mountain trails locals never stopped loving — Vikos, Menalon,
+            the mountain trails locals never stopped loving - Vikos, Menalon,
             Pelion, Tilos.
           </p>
           <div className="flex gap-6 pt-4 text-sm">
@@ -78,17 +78,19 @@ export default function LoginPage() {
             <Stat n="0kg" l="Crowd footprint" />
           </div>
         </div>
-        <div className="text-xs text-primary-foreground/60">
-          A regenerative tourism initiative · Aegean • Pindus • Crete
+        <div className="text-xs text-muted-foreground">
+          A regenerative tourism initiative / Aegean / Pindus / Crete
         </div>
       </div>
 
       {/* Form */}
-      <div className="flex items-center justify-center bg-[var(--gradient-horizon)] p-6">
+      <div className="flex items-center justify-center bg-background p-6 lg:justify-end lg:pr-20 xl:pr-28 2xl:pr-36">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2 lg:hidden">
             <PathfinderLogo className="h-9 w-9" />
-            <span className="text-lg font-semibold">Pathfinder</span>
+            <span className="text-lg font-semibold text-foreground">
+              Pathfinder
+            </span>
           </div>
           <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground">
             {mode === "signin"
@@ -111,7 +113,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-primary/40 focus:ring-2"
+                className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground outline-none ring-primary/40 transition placeholder:text-muted-foreground focus:border-primary focus:ring-2"
                 placeholder="you@example.com"
               />
             </div>
@@ -125,8 +127,8 @@ export default function LoginPage() {
                 minLength={6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-primary/40 focus:ring-2"
-                placeholder="••••••••"
+                className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground outline-none ring-primary/40 transition placeholder:text-muted-foreground focus:border-primary focus:ring-2"
+                placeholder="********"
               />
             </div>
             <button
@@ -135,7 +137,7 @@ export default function LoginPage() {
               className="mt-2 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
             >
               {loading
-                ? "…"
+                ? "..."
                 : mode === "signin"
                   ? "Sign in"
                   : "Create account"}

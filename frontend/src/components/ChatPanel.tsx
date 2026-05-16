@@ -2,7 +2,6 @@ import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Message } from "@/api/client";
 import {
-  mockAssistantReply,
   ASSISTANT_GREETING,
   TRAIL_CARD_MARKER,
   getTrailById,
@@ -22,10 +21,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const REASONING_STEPS = [
-  { icon: Database, label: "Searching Greek Trail Database…" },
-  { icon: Cloud, label: "Checking Weather via OpenWeatherMap…" },
-  { icon: Mountain, label: "Cross-referencing elevation & trail conditions…" },
-  { icon: Sparkles, label: "Curating hidden-gem matches…" },
+  { icon: Database, label: "Searching live Greek destination sources..." },
+  { icon: Cloud, label: "Checking current transport and seasonal context..." },
+  { icon: Mountain, label: "Matching hidden alternatives to your request..." },
+  { icon: Sparkles, label: "Curating lower-crowd Greek options..." },
 ];
 
 const QUICK_STARTS = [
@@ -52,6 +51,7 @@ export function ChatPanel({
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [pendingUserText, setPendingUserText] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [reasoningStep, setReasoningStep] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -103,37 +103,47 @@ export function ChatPanel({
 
   const send = useMutation({
     mutationFn: async (text: string) => {
-      await api.saveMessage(threadId, "user", text);
-
       if (messages.length === 0) {
-        const shortTitle = text.slice(0, 48) + (text.length > 48 ? "…" : "");
+        const shortTitle = text.slice(0, 48) + (text.length > 48 ? "..." : "");
         await api.renameChat(threadId, shortTitle);
         qc.invalidateQueries({ queryKey: ["threads"] });
       }
 
-      qc.invalidateQueries({ queryKey: ["messages", threadId] });
-
-      await new Promise((r) => setTimeout(r, 1400));
-      const reply = mockAssistantReply(text);
-      onAssistantTrails(reply.trailIds);
-
+      setPendingUserText(text);
       setStreamingText("");
-      const tokens = reply.text.split(/(\s+)/);
-      for (const tok of tokens) {
-        await new Promise((r) => setTimeout(r, 18));
-        setStreamingText((prev) => prev + tok);
-      }
 
-      await api.saveMessage(threadId, "assistant", reply.text);
+      let completed = "";
+      await api.sendMessage(threadId, text, {
+        onToken: (delta) => {
+          completed += delta;
+          setStreamingText((prev) => prev + delta);
+        },
+        onCompleted: (content) => {
+          completed = content;
+        },
+      });
+
+      const match = completed.match(TRAIL_CARD_MARKER);
+      if (match) {
+        onAssistantTrails(
+          match[1]
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        );
+      }
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["messages", threadId] });
       setPending(false);
+      setPendingUserText("");
       setStreamingText("");
       setTimeout(() => inputRef.current?.focus(), 0);
     },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "AI request failed");
+    },
   });
-
   const submitText = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
@@ -150,7 +160,7 @@ export function ChatPanel({
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    toast.success(`Analyzing "${file.name}"…`, {
+    toast.success(`Analyzing "${file.name}"...`, {
       description:
         "Photo-to-Trail will match this landscape to a hidden Greek route.",
     });
@@ -182,6 +192,13 @@ export function ChatPanel({
                 onPinTrail={onPinTrail}
               />
             ))}
+            {pendingUserText && (
+              <MessageBubble
+                role="user"
+                content={pendingUserText}
+                onPinTrail={onPinTrail}
+              />
+            )}
             {pending && streamingText && (
               <MessageBubble
                 role="assistant"
@@ -248,7 +265,7 @@ export function ChatPanel({
                 }
               }}
               rows={1}
-              placeholder="Ask for a hidden-gem trail near Crete, an alternative to Santorini…"
+              placeholder="Ask for a hidden-gem trail near Crete, an alternative to Santorini..."
               className="max-h-40 flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
             />
             <button
@@ -374,7 +391,7 @@ function Greeting({ onSuggest }: { onSuggest: (s: string) => void }) {
     "An alternative to Santorini",
     "Quiet gorge hike in Crete",
     "Easy alpine day in the Pindus",
-    "Skip Meteora — what's nearby?",
+    "Skip Meteora - what's nearby?",
   ];
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center gap-5 pt-12 text-center">
@@ -407,7 +424,7 @@ function Greeting({ onSuggest }: { onSuggest: (s: string) => void }) {
 
 function renderMarkdownLite(text: string) {
   const parts: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|_[^_]+_)/g;
+  const re = /(\*\*[^*]+\*\*|_[^_]+_|\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s<)]+)/g;
   let last = 0;
   let i = 0;
   for (const m of text.matchAll(re)) {
@@ -419,6 +436,35 @@ function renderMarkdownLite(text: string) {
         <strong key={i++} className="font-semibold text-foreground">
           {tok.slice(2, -2)}
         </strong>,
+      );
+    } else if (tok.startsWith("[")) {
+      const link = tok.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+      if (link) {
+        parts.push(
+          <a
+            key={i++}
+            href={link[2]}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-primary underline underline-offset-2"
+          >
+            {link[1]}
+          </a>,
+        );
+      } else {
+        parts.push(tok);
+      }
+    } else if (tok.startsWith("http")) {
+      parts.push(
+        <a
+          key={i++}
+          href={tok}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-primary underline underline-offset-2"
+        >
+          {tok}
+        </a>,
       );
     } else {
       parts.push(

@@ -34,6 +34,12 @@ export interface AppConfigResponse {
   authEnabled: boolean;
 }
 
+type StreamHandlers = {
+  onToken?: (delta: string) => void;
+  onMessageCreated?: (messageId: string) => void;
+  onCompleted?: (content: string) => void;
+};
+
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -66,6 +72,65 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+function parseSseEvent(raw: string): { event: string; data: unknown } | null {
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  try {
+    return { event, data: JSON.parse(dataLines.join("\n")) };
+  } catch {
+    return null;
+  }
+}
+
+async function readSseStream(
+  stream: ReadableStream<Uint8Array>,
+  handlers: StreamHandlers,
+) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    let separator = buffer.match(/\r?\n\r?\n/);
+    while (separator?.index !== undefined) {
+      const boundary = separator.index;
+      const raw = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + separator[0].length);
+      const parsed = parseSseEvent(raw);
+      if (parsed) {
+        const data = parsed.data as Record<string, unknown>;
+        if (parsed.event === "message.created" && typeof data.messageId === "string") {
+          handlers.onMessageCreated?.(data.messageId);
+        } else if (parsed.event === "token" && typeof data.delta === "string") {
+          handlers.onToken?.(data.delta);
+        } else if (parsed.event === "message.completed" && typeof data.content === "string") {
+          handlers.onCompleted?.(data.content);
+        } else if (parsed.event === "error") {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "AI provider error",
+          );
+        }
+      }
+      separator = buffer.match(/\r?\n\r?\n/);
+    }
+  }
+}
+
 export const api = {
   getConfig: () => request<AppConfigResponse>("/api/config"),
 
@@ -94,4 +159,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ role, content }),
     }),
+
+  sendMessage: async (
+    chatId: string,
+    content: string,
+    handlers: StreamHandlers = {},
+  ) => {
+    const auth = await authHeaders();
+    const res = await fetch(`/api/chats/${chatId}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...auth,
+      },
+      body: JSON.stringify({ content }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `${res.status} ${res.statusText}`);
+    }
+    if (!res.body) throw new Error("Streaming is not supported by this browser");
+
+    await readSseStream(res.body, handlers);
+  },
 };
