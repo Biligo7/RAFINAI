@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { PathfinderLogo } from "@/components/PathfinderLogo";
+import { LocalHostLogo } from "@/components/LocalHostLogo";
 import { toast } from "sonner";
 
 export default function LoginPage() {
@@ -51,35 +51,29 @@ export default function LoginPage() {
       {/* Brand panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-background p-12 text-foreground lg:flex">
         <div className="flex items-center gap-3">
-          <PathfinderLogo className="h-10 w-10" />
+          <LocalHostLogo className="h-10 w-10" />
           <div>
             <div className="text-lg font-semibold tracking-tight">
-              Pathfinder
+              Local Host
             </div>
             <div className="text-[10px] uppercase tracking-[0.2em] opacity-70">
-              Sustainable Greek Trails
+              The authentic Greek local experience
             </div>
           </div>
         </div>
         <div className="space-y-6">
           <h1 className="font-display text-4xl font-semibold leading-tight tracking-tight">
-            Skip the crowds.
+            Travel like a local.
             <br />
-            Walk Greece's hidden 300.
+            Find Greece beyond the crowds.
           </h1>
           <p className="max-w-md text-base leading-relaxed text-muted-foreground">
-            36 million tourists overwhelm a handful of icons. We route you to
-            the mountain trails locals never stopped loving - Vikos, Menalon,
-            Pelion, Tilos.
+            Discover underrated villages, quiet trails, family-run tavernas,
+            and island corners that keep your trip personal and local.
           </p>
-          <div className="flex gap-6 pt-4 text-sm">
-            <Stat n="300+" l="Mountain trails" />
-            <Stat n="42" l="Hidden gems mapped" />
-            <Stat n="0kg" l="Crowd footprint" />
-          </div>
         </div>
         <div className="text-xs text-muted-foreground">
-          A regenerative tourism initiative / Aegean / Pindus / Crete
+          The authentic Greek local experience
         </div>
       </div>
 
@@ -87,9 +81,9 @@ export default function LoginPage() {
       <div className="flex items-center justify-center bg-background p-6 lg:justify-end lg:pr-20 xl:pr-28 2xl:pr-36">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2 lg:hidden">
-            <PathfinderLogo className="h-9 w-9" />
+            <LocalHostLogo className="h-9 w-9" />
             <span className="text-lg font-semibold text-foreground">
-              Pathfinder
+              Local Host
             </span>
           </div>
           <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground">
@@ -149,21 +143,10 @@ export default function LoginPage() {
             className="mt-5 w-full text-center text-sm text-muted-foreground hover:text-foreground"
           >
             {mode === "signin"
-              ? "New to Pathfinder? Create an account"
+              ? "New to Local Host? Create an account"
               : "Already have an account? Sign in"}
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ n, l }: { n: string; l: string }) {
-  return (
-    <div>
-      <div className="font-display text-2xl font-semibold">{n}</div>
-      <div className="text-[11px] uppercase tracking-wider opacity-70">
-        {l}
       </div>
     </div>
   );

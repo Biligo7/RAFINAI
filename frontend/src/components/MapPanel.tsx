@@ -95,7 +95,7 @@ export function MapPanel({
               <strong>{p.name}</strong>
               <br />
               <span style={{ color: "oklch(0.4 0.05 250)" }}>
-                Overtouristed — ask Pathfinder for an alternative.
+                Overtouristed - ask Local Host for an alternative.
               </span>
             </Popup>
           </CircleMarker>

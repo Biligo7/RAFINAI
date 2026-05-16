@@ -1,4 +1,4 @@
-export function PathfinderLogo({ className = "h-8 w-8" }: { className?: string }) {
+export function LocalHostLogo({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 40" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="20" cy="20" r="19" fill="var(--aegean)" />

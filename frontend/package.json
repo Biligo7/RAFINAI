@@ -1,8 +1,8 @@
 {
-  "name": "rafinai-frontend",
+  "name": "local-host-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "RAFINAI frontend — Pathfinder-style trail companion UI.",
+  "description": "Local Host frontend - authentic Greek local experience UI.",
   "license": "MIT",
   "type": "module",
   "scripts": {
