@@ -278,8 +278,8 @@ export function ChatPanel({
             </button>
           </div>
           <p className="mx-auto mt-2 max-w-2xl text-[11px] text-muted-foreground">
-            Pathfinder redirects flows from overrun icons to 300+ Greek mountain
-            trails. Suggestions are illustrative.
+            Local Host helps redirect trips from overrun icons to authentic
+            Greek local experiences. Suggestions are illustrative.
           </p>
         </form>
       </div>

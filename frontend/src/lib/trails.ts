@@ -245,7 +245,7 @@ export function getTrailById(id: string) {
   return TRAILS.find((t) => t.id === id);
 }
 
-const GREETING = `Kalimera! I'm Pathfinder — your Greek trail companion. Tell me what you love (gorges, monasteries, secret coves, alpine summits) or which icon you want to escape (Santorini, Mykonos, Meteora, Samaria), and I'll route you to the hidden-gem trail that fits.`;
+const GREETING = `Kalimera! I'm Local Host - your Greek local travel companion. Tell me what you love (gorges, monasteries, secret coves, alpine summits, food villages) or which icon you want to escape (Santorini, Mykonos, Meteora, Samaria), and I'll route you to an authentic lower-crowd alternative.`;
 
 // Lightweight mock assistant. Real Lovable AI can be wired in later.
 export function mockAssistantReply(userMessage: string): {

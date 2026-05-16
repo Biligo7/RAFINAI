@@ -27,16 +27,13 @@ services:
         # networks where PyPI's certificate chain verifies normally.
         PIP_EXTRA_INSTALL_ARGS: "--trusted-host pypi.org --trusted-host files.pythonhosted.org"
     container_name: aichat-backend
+    env_file:
+      - ./backend/.env
     environment:
       PORT: "3000"
-      APP_NAME: RAFINAI
+      APP_NAME: "Local Host"
       APP_ENV: local
       LOG_LEVEL: info
-      AI_PROVIDER: mock
-      AI_MODEL: mock-gpt
-      AI_SYSTEM_PROMPT: You are RAFINAI, an AI-powered sustainable trail companion for Greece.
-      AI_TEMPERATURE: "0.4"
-      AI_MAX_TOKENS: "2000"
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_DATABASE: ai_chat

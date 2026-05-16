@@ -29,6 +29,7 @@ docker compose up --build
 ```
 
 Open <http://localhost:8080>. The default AI provider is `mock`, so chat works without any model credentials.
+Docker Compose reads backend AI settings from `backend/.env`; set `AI_PROVIDER=openai_compatible` there to use OpenAI locally.
 
 | URL | What it serves |
 | --- | --- |
@@ -380,6 +381,17 @@ azure_openai_api_version = "2024-10-21"
 # Pass azure_openai_api_key via TF_VAR_azure_openai_api_key (GitHub environment secret).
 ```
 
+For local Docker development, put the same values in `backend/.env`:
+
+```env
+AI_PROVIDER=azure_openai
+AI_MODEL=gpt-4.1-mini
+AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT=YOUR-DEPLOYMENT-NAME
+AZURE_OPENAI_API_VERSION=2024-10-21
+AI_WEB_SEARCH_ENABLED=true
+```
+
 ### Azure OpenAI (provision via this stack)
 
 ```hcl
@@ -397,6 +409,8 @@ openai_base_url = "https://api.openai.com/v1"
 openai_model    = "gpt-4o-mini"
 # Pass openai_api_key via TF_VAR_openai_api_key.
 ```
+
+For local Docker development, the backend also supports `AI_WEB_SEARCH_ENABLED=true` in `backend/.env`. With the OpenAI / Azure OpenAI Responses API, this lets the assistant search the web for current travel, transport, and destination information before answering when the selected provider supports the tool.
 
 ### Mock (default)
 

@@ -2,7 +2,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Chat } from "@/api/client";
 import { supabase } from "@/integrations/supabase/client";
-import { PathfinderLogo } from "./PathfinderLogo";
+import { LocalHostLogo } from "./LocalHostLogo";
 import { LogOut, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -45,11 +45,11 @@ export function ThreadSidebar({
     <aside className="flex h-full w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
       {/* Brand */}
       <div className="flex items-center gap-2.5 border-b border-sidebar-border px-4 py-4">
-        <PathfinderLogo className="h-8 w-8" />
+        <LocalHostLogo className="h-8 w-8" />
         <div>
-          <div className="text-sm font-semibold tracking-tight">Pathfinder</div>
+          <div className="text-sm font-semibold tracking-tight">Local Host</div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/60">
-            Greek Trails · AI
+            Authentic Greek AI
           </div>
         </div>
       </div>
