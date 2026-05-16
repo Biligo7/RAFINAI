@@ -3,13 +3,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Chat } from "@/api/client";
 import { supabase } from "@/integrations/supabase/client";
 import { LocalHostLogo } from "./LocalHostLogo";
-import { LogOut, Plus, Trash2 } from "lucide-react";
+import { LogOut, Plus, Settings2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+import { clearPersonalizationSessionKeys } from "@/lib/personalizationSession";
 
 export function ThreadSidebar({
   email,
+  userId,
+  onOpenProfileSettings,
 }: {
   email: string | null;
+  userId: string;
+  onOpenProfileSettings: () => void;
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -37,6 +43,7 @@ export function ThreadSidebar({
   });
 
   const signOut = async () => {
+    if (userId) clearPersonalizationSessionKeys(userId);
     await supabase.auth.signOut();
     qc.clear();
     navigate("/login");
@@ -106,13 +113,22 @@ export function ThreadSidebar({
 
       {/* Footer */}
       <div className="border-t border-sidebar-border px-4 py-3">
-        <div className="flex items-center justify-between">
-          <span className="truncate text-xs text-sidebar-foreground/60">
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-xs text-sidebar-foreground/60">
             {email ?? "Explorer"}
           </span>
           <button
+            type="button"
+            onClick={onOpenProfileSettings}
+            className="shrink-0 rounded p-1 text-sidebar-foreground/60 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            aria-label="Travel profile and preferences"
+            title="Travel profile"
+          >
+            <Settings2 className="size-4" />
+          </button>
+          <button
             onClick={signOut}
-            className="rounded p-1 text-sidebar-foreground/60 transition hover:text-sidebar-foreground"
+            className="shrink-0 rounded p-1 text-sidebar-foreground/60 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
             aria-label="Sign out"
           >
             <LogOut className="size-4" />
