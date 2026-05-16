@@ -43,7 +43,7 @@ services:
       PG_PASSWORD: ai_chat
       PG_SSL: "false"
       RUN_MIGRATIONS_ON_STARTUP: "true"
-      AUTH_ENABLED: "false"
+      AUTH_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy

@@ -413,6 +413,40 @@ async def create_example(
     return _example_from_row(row)
 
 
+# ---- User Preferences ----
+
+async def get_user_preferences(user_id: str) -> dict | None:
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """SELECT preferences_text, onboarding_completed
+           FROM user_preferences WHERE user_id = $1""",
+        user_id,
+    )
+    if not row:
+        return None
+    return {
+        "preferences_text": row["preferences_text"],
+        "onboarding_completed": row["onboarding_completed"],
+    }
+
+
+async def upsert_user_preferences(
+    user_id: str, preferences_text: str, onboarding_completed: bool = True
+) -> None:
+    pool = await get_pool()
+    await pool.execute(
+        """INSERT INTO user_preferences (user_id, preferences_text, onboarding_completed)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id) DO UPDATE
+           SET preferences_text = EXCLUDED.preferences_text,
+               onboarding_completed = EXCLUDED.onboarding_completed,
+               updated_at = now()""",
+        user_id,
+        preferences_text,
+        onboarding_completed,
+    )
+
+
 # ---- App events ----
 
 async def record_event(

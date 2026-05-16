@@ -45,6 +45,17 @@ async def generate_chat_response(
     history = await repo.list_messages(chat_id, user_id)
 
     system_prompt = chat.systemPrompt or settings.ai_system_prompt
+
+    if user_id:
+        user_prefs = await repo.get_user_preferences(user_id)
+        if user_prefs and user_prefs["preferences_text"]:
+            system_prompt += (
+                "\n\n## User Preferences\n"
+                "The following are personal preferences shared by this user. "
+                "Use them to personalize your recommendations:\n"
+                + user_prefs["preferences_text"]
+            )
+
     recent = history[-settings.ai_max_history_messages:]
 
     messages: list[ChatCompletionMessage] = [

@@ -16,9 +16,7 @@ CREATE TABLE IF NOT EXISTS app_users (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ix_app_users_external_subject
-    ON app_users(external_subject)
-    WHERE external_subject IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ix_app_users_external_subject ON app_users (external_subject);
 
 CREATE TABLE IF NOT EXISTS chats (
     id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,

@@ -167,6 +167,11 @@ export async function streamChatMessage(
   return completed ?? fromTokens;
 }
 
+export interface PreferencesResponse {
+  onboardingCompleted: boolean;
+  preferences: string[] | null;
+}
+
 export const api = {
   getConfig: () => request<AppConfigResponse>("/api/config"),
 
@@ -194,5 +199,14 @@ export const api = {
     request<Message>(`/api/chats/${chatId}/messages/save`, {
       method: "POST",
       body: JSON.stringify({ role, content }),
+    }),
+
+  getPreferences: () =>
+    request<PreferencesResponse>("/api/users/me/preferences"),
+
+  savePreferences: (preferences: string[]) =>
+    request<PreferencesResponse>("/api/users/me/preferences", {
+      method: "PUT",
+      body: JSON.stringify({ preferences }),
     }),
 };

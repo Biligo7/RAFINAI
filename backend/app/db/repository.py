@@ -172,6 +172,21 @@ class Repository:
             tags=tags, metadata=metadata,
         )
 
+    # ---- User Preferences ----
+
+    async def get_user_preferences(self, user_id: str) -> dict | None:
+        if self._use_sql:
+            from app.db.queries import get_user_preferences
+            return await get_user_preferences(user_id)
+        return None
+
+    async def upsert_user_preferences(
+        self, user_id: str, preferences_text: str, onboarding_completed: bool = True
+    ) -> None:
+        if self._use_sql:
+            from app.db.queries import upsert_user_preferences
+            await upsert_user_preferences(user_id, preferences_text, onboarding_completed)
+
     # ---- App events ----
 
     async def record_event(
