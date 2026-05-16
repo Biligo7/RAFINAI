@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
 
+ChatMessageContent = str | list[dict[str, Any]]
+
+
 class ChatCompletionMessage(BaseModel):
     role: str
-    content: str
+    content: ChatMessageContent
 
 
 class AIProvider(Protocol):

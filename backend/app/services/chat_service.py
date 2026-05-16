@@ -11,7 +11,7 @@ from typing import Any
 from app.config import settings
 from app.db.repository import get_repository
 from app.logging import get_logger
-from app.models import Message
+from app.models import ImageAttachment, Message
 from app.services.ai.base import ChatCompletionMessage
 from app.services.ai.client import get_ai_provider
 
@@ -29,6 +29,7 @@ async def generate_chat_response(
     *,
     chat_id: str,
     user_message: Message,
+    image_attachments: list[ImageAttachment] | None = None,
     request_id: str,
     on_assistant_start: Callable[[str], Any],
     on_token: Callable[[str], Any],
@@ -50,7 +51,12 @@ async def generate_chat_response(
     ]
     for m in recent:
         if m.role in ("user", "assistant"):
-            messages.append(ChatCompletionMessage(role=m.role, content=m.content))
+            content = (
+                _with_image_parts(m.content, image_attachments)
+                if m.id == user_message.id and image_attachments
+                else m.content
+            )
+            messages.append(ChatCompletionMessage(role=m.role, content=content))
 
     while _total_chars(messages) > settings.ai_max_input_chars and len(messages) > 2:
         messages.pop(1)
@@ -123,4 +129,22 @@ async def generate_chat_response(
 
 
 def _total_chars(messages: list[ChatCompletionMessage]) -> int:
-    return sum(len(m.content) for m in messages)
+    total = 0
+    for message in messages:
+        if isinstance(message.content, str):
+            total += len(message.content)
+        else:
+            total += sum(len(str(part.get("text", ""))) for part in message.content)
+    return total
+
+
+def _with_image_parts(content: str, images: list[ImageAttachment]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
+    for image in images:
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image.dataUrl},
+            },
+        )
+    return parts

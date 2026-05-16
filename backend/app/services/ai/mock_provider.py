@@ -33,7 +33,7 @@ class MockProvider:
         )
         preface = ""
         if last_user:
-            snippet = last_user.content[:80].replace("\n", " ")
+            snippet = _text_preview(last_user.content)
             preface = f'Mock reply to: "{snippet}"\n\n'
         full = preface + CANNED_RESPONSE
         for token in full.split(" "):
@@ -44,3 +44,19 @@ class MockProvider:
 
 
 mock_provider = MockProvider()
+
+
+def _text_preview(content: object) -> str:
+    if isinstance(content, str):
+        return content[:80].replace("\n", " ")
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                parts.append(str(part.get("text", "")))
+            elif part.get("type") == "image_url":
+                parts.append("[image]")
+        return " ".join(parts)[:80].replace("\n", " ")
+    return str(content)[:80].replace("\n", " ")

@@ -6,7 +6,7 @@ import os
 from collections.abc import AsyncIterator
 
 import httpx
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
 
 from app.logging import get_logger
 from app.services.ai.base import ChatCompletionMessage
@@ -93,13 +93,34 @@ class OpenAICompatibleProvider:
         request_id: str,
     ) -> AsyncIterator[str]:
         client = self._get_client()
-        stream = await client.chat.completions.create(
-            model=self._default_model or model,
-            messages=[{"role": m.role, "content": m.content} for m in messages],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-        )
+        selected_model = self._default_model or model
+        params = {
+            "model": selected_model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "stream": True,
+        }
+        if _uses_reasoning_chat_params(selected_model):
+            params["max_completion_tokens"] = max_tokens
+        else:
+            params["temperature"] = temperature
+            params["max_tokens"] = max_tokens
+
+        try:
+            stream = await client.chat.completions.create(**params)
+        except BadRequestError as exc:
+            raise RuntimeError(f"OpenAI request rejected: {exc.message or str(exc)}") from exc
+
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
+
+
+def _uses_reasoning_chat_params(model_or_deployment: str) -> bool:
+    name = model_or_deployment.lower()
+    return (
+        name.startswith("gpt-5")
+        or "gpt-5" in name
+        or name.startswith("o1")
+        or name.startswith("o3")
+        or name.startswith("o4")
+    )

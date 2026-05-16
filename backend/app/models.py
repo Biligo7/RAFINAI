@@ -92,8 +92,16 @@ class PatchChatRequest(BaseModel):
     systemPrompt: str | None = Field(default=None, max_length=4000)
 
 
+class ImageAttachment(BaseModel):
+    name: str | None = Field(default=None, max_length=256)
+    mediaType: str = Field(..., pattern=r"^image/(png|jpeg|jpg|webp)$")
+    dataUrl: str = Field(..., min_length=32, max_length=6_500_000)
+    thumbnailDataUrl: str | None = Field(default=None, min_length=32, max_length=600_000)
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1)
+    images: list[ImageAttachment] = Field(default_factory=list, max_length=3)
     temperature: float | None = Field(default=None, ge=0, le=2)
     systemPromptOverride: str | None = Field(default=None, max_length=4000)
 

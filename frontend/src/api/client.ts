@@ -34,6 +34,13 @@ export interface AppConfigResponse {
   authEnabled: boolean;
 }
 
+export interface ImageAttachment {
+  name: string;
+  mediaType: string;
+  dataUrl: string;
+  thumbnailDataUrl?: string;
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -91,6 +98,7 @@ export async function streamChatMessage(
   chatId: string,
   content: string,
   handlers: SseHandlers,
+  images: ImageAttachment[] = [],
 ): Promise<string> {
   const auth = await authHeaders();
   const res = await fetch(`/api/chats/${chatId}/messages`, {
@@ -99,7 +107,7 @@ export async function streamChatMessage(
       "content-type": "application/json",
       ...auth,
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, images }),
   });
   if (!res.ok) {
     const body = await res.text();
