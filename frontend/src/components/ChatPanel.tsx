@@ -24,12 +24,6 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-const QUICK_STARTS = [
-  "Find a beginner mountain trail",
-  "Suggest a coastal hidden gem",
-  "Check safety for Mt. Olympus",
-];
-
 const PHOTO_DEFAULT_PROMPT =
   "Find a Greek trail similar to the terrain in this photo.";
 const MAX_IMAGE_EDGE = 1400;
@@ -312,20 +306,6 @@ export function ChatPanel({
       </div>
 
       <div className="border-t border-border bg-card/80 backdrop-blur">
-        {messages.length === 0 && !pending && (
-          <div className="mx-auto flex max-w-2xl flex-wrap gap-2 px-6 pt-4">
-            {QUICK_STARTS.map((q) => (
-              <button
-                key={q}
-                onClick={() => submitText(q)}
-                className="rounded-full border border-border bg-background px-3.5 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
-
         <form onSubmit={handleSubmit} className="px-6 py-4">
           {attachedPhoto && (
             <div className="mx-auto mb-2 flex max-w-2xl items-center gap-3 rounded-xl border border-border bg-background px-3 py-2 shadow-[var(--shadow-soft)]">
@@ -596,10 +576,11 @@ function MessageBubble({
 function Greeting({ onSuggest }: { onSuggest: (s: string) => void }) {
   const prompts = [
     "An alternative to Santorini",
-    "Quiet gorge hike in Crete",
+    "Profile my local travel style",
     "Easy alpine day in the Pindus",
     "Skip Meteora — what's nearby?",
   ];
+  prompts[3] = "Weather, crowds, low-impact route";
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center gap-5 pt-12 text-center">
       <div className="grid size-16 place-items-center rounded-2xl bg-[var(--gradient-aegean)] text-primary-foreground shadow-[var(--shadow-elevated)]">

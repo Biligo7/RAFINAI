@@ -53,7 +53,9 @@ export function ThreadSidebar({
     <aside className="flex h-full w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
       {/* Brand */}
       <div className="flex items-center gap-2.5 border-b border-sidebar-border px-4 py-4">
-        <LocalHostLogo className="h-8 w-8" />
+        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-white">
+          <LocalHostLogo className="h-7 w-7" />
+        </div>
         <div>
           <div className="text-sm font-semibold tracking-tight">Local Host</div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/60">
