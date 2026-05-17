@@ -135,6 +135,10 @@ def _parse_element(el: dict[str, Any]) -> dict[str, Any] | None:
     if lat is None or lng is None:
         return None
 
+    lat_f, lng_f = float(lat), float(lng)
+    if not (34.5 <= lat_f <= 42.0 and 19.3 <= lng_f <= 30.0):
+        return None
+
     osm_type = el.get("type", "way")
     osm_id = el.get("id", 0)
 

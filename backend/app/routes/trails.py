@@ -178,7 +178,7 @@ async def list_trails(
     if popular_only:
         limit = min(limit, 25)
 
-    conditions: list[str] = []
+    conditions: list[str] = ["lat >= 34.5", "lat <= 42.0", "lng >= 19.3", "lng <= 30.0"]
     params: list = []
     idx = 1
 

@@ -26,8 +26,18 @@ const ICONIC = [
 const WAYPOINT_STYLE: Record<WaypointKind, { emoji: string; bg: string; label: string }> = {
   shelter: { emoji: "🏠", bg: "#0284c7", label: "Shelter" },
   spring: { emoji: "💧", bg: "#38bdf8", label: "Spring" },
-  biodiversity: { emoji: "🌿", bg: "#d946ef", label: "Biodiversity" },
 };
+
+const GREECE_BOUNDS = { latMin: 34.5, latMax: 42.0, lngMin: 19.3, lngMax: 30.0 };
+
+function isInGreece(lat: number, lng: number): boolean {
+  return (
+    lat >= GREECE_BOUNDS.latMin &&
+    lat <= GREECE_BOUNDS.latMax &&
+    lng >= GREECE_BOUNDS.lngMin &&
+    lng <= GREECE_BOUNDS.lngMax
+  );
+}
 
 function waypointDivIcon(kind: WaypointKind) {
   const s = WAYPOINT_STYLE[kind];
@@ -55,6 +65,25 @@ function MapZoomListener({ onZoomChange }: { onZoomChange: (zoom: number) => voi
     },
   });
   return null;
+}
+
+function trailPinIcon(highlighted: boolean) {
+  const color = highlighted ? "#0284c7" : "#f59e0b";
+  const size = highlighted ? 36 : 28;
+  return L.divIcon({
+    className: "pf-trail-pin",
+    html: `
+      <div style="position: relative; display: flex; flex-direction: column; align-items: center; width: ${size}px; height: ${size}px;">
+        <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
+          <circle cx="12" cy="9" r="3" fill="#ffffff" opacity="0.9"/>
+        </svg>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+    popupAnchor: [0, -size],
+  });
 }
 
 function overrunDivIcon(_name: string) {
@@ -200,32 +229,32 @@ export function MapPanel({
           );
         })}
 
-        {/* Nature waypoints — mock offset-based (from local trail data) */}
-        {focusedTrail?.waypoints?.map((w: any, i: number) => {
-          const lat = w.lat ?? (focusedTrail.lat + (w.dLat ?? 0));
-          const lng = w.lng ?? (focusedTrail.lng + (w.dLng ?? 0));
-          return (
-            <Marker
-              key={`wp-${focusedTrail.id}-${i}`}
-              position={[lat, lng]}
-              icon={waypointDivIcon(w.kind)}
-            >
-              <Popup>
-                <div style={{ fontFamily: "Inter, sans-serif", minWidth: 160 }}>
-                  <div style={{ fontSize: 11, color: WAYPOINT_STYLE[w.kind as WaypointKind]?.bg ?? "#22c55e", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    {WAYPOINT_STYLE[w.kind as WaypointKind]?.label ?? "Feature"}
+        {/* Nature waypoints (shelters & springs only) */}
+        {focusedTrail?.waypoints
+          ?.filter((w: any) => w.kind !== "biodiversity")
+          .map((w: any, i: number) => {
+            const lat = w.lat ?? (focusedTrail.lat + (w.dLat ?? 0));
+            const lng = w.lng ?? (focusedTrail.lng + (w.dLng ?? 0));
+            if (!isInGreece(lat, lng)) return null;
+            return (
+              <Marker
+                key={`wp-${focusedTrail.id}-${i}`}
+                position={[lat, lng]}
+                icon={waypointDivIcon(w.kind)}
+              >
+                <Popup>
+                  <div style={{ fontFamily: "Inter, sans-serif", minWidth: 160 }}>
+                    <div style={{ fontSize: 11, color: WAYPOINT_STYLE[w.kind as WaypointKind]?.bg ?? "#0284c7", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      {WAYPOINT_STYLE[w.kind as WaypointKind]?.label ?? "Feature"}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>
+                      {w.name}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>
-                    {w.name}
-                  </div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-                    via iNaturalist · community-verified
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
+                </Popup>
+              </Marker>
+            );
+          })}
 
         {/* Live telemetry overlay — from /api/trails/:name/telemetry */}
         {liveData && (
@@ -242,20 +271,22 @@ export function MapPanel({
                 }}
               />
             )}
-            {liveData.waypoints?.map((w: any, i: number) => (
-              <Marker key={`live-wp-${i}`} position={[w.lat, w.lng]} icon={waypointDivIcon(w.kind)}>
-                <Popup>
-                  <div style={{ fontFamily: "Inter, sans-serif" }}>
-                    <div style={{ fontSize: 10, color: "#22c55e", fontWeight: 700, textTransform: "uppercase" }}>
-                      🌿 Live Feature Discoveries
+            {liveData.waypoints
+              ?.filter((w: any) => w.kind !== "biodiversity" && isInGreece(w.lat, w.lng))
+              .map((w: any, i: number) => (
+                <Marker key={`live-wp-${i}`} position={[w.lat, w.lng]} icon={waypointDivIcon(w.kind)}>
+                  <Popup>
+                    <div style={{ fontFamily: "Inter, sans-serif" }}>
+                      <div style={{ fontSize: 11, color: WAYPOINT_STYLE[w.kind as WaypointKind]?.bg ?? "#0284c7", fontWeight: 600, textTransform: "uppercase" }}>
+                        {WAYPOINT_STYLE[w.kind as WaypointKind]?.label ?? "Feature"}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", marginTop: 2 }}>
+                        {w.name}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", marginTop: 2 }}>
-                      {w.name}
-                    </div>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
+                  </Popup>
+                </Marker>
+              ))}
 
             <CircleMarker
               center={[liveData.lat, liveData.lng]}
@@ -279,27 +310,23 @@ export function MapPanel({
           </>
         )}
 
-        {/* Trail centroids */}
-        {trailList.map((t) => {
-          const isHighlighted = highlightedIds.includes(t.id);
-          return (
-            <CircleMarker
-              key={t.id}
-              center={[t.lat, t.lng]}
-              radius={isHighlighted ? 14 : 8}
-              pathOptions={{
-                color: isHighlighted ? "#0284c7" : "#f59e0b",
-                fillColor: isHighlighted ? "#0284c7" : "#f59e0b",
-                fillOpacity: isHighlighted ? 0.95 : 0.85,
-                weight: isHighlighted ? 3 : 2,
-              }}
-            >
-              <Popup>
-                <TrailPopup trail={t} />
-              </Popup>
-            </CircleMarker>
-          );
-        })}
+        {/* Trail pins */}
+        {trailList
+          .filter((t) => isInGreece(t.lat, t.lng))
+          .map((t) => {
+            const isHighlighted = highlightedIds.includes(t.id);
+            return (
+              <Marker
+                key={t.id}
+                position={[t.lat, t.lng]}
+                icon={trailPinIcon(isHighlighted)}
+              >
+                <Popup>
+                  <TrailPopup trail={t} />
+                </Popup>
+              </Marker>
+            );
+          })}
 
         <FlyToTrail focused={focused} liveData={liveData} databaseTrails={trailList} />
       </MapContainer>
@@ -371,7 +398,9 @@ function Legend({ trailCount, source, loading }: { trailCount: number; source: "
     <div className="absolute bottom-4 left-4 z-[400] rounded-xl border border-white/10 bg-black/70 p-3 text-xs text-white shadow-2xl backdrop-blur-md">
       <div className="mb-2 font-semibold tracking-wide text-gray-200">Topographic Sat-Overlay</div>
       <div className="flex items-center gap-2">
-        <span className="inline-block size-3 rounded-full border border-white bg-[#f59e0b]" />
+        <svg width="12" height="14" viewBox="0 0 24 28" className="shrink-0">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#f59e0b" stroke="#fff" strokeWidth="2"/>
+        </svg>
         <span className="text-gray-300">
           {loading ? "Loading trails…" : `${trailCount} trails`}
           {source === "live" && !loading && (
@@ -380,12 +409,10 @@ function Legend({ trailCount, source, loading }: { trailCount: number; source: "
         </span>
       </div>
       <div className="mt-2 flex items-center gap-2">
-        <span className="inline-block size-3 rounded-full border border-white bg-[#0284c7]" />
-        <span className="text-gray-300">Selected Route</span>
-      </div>
-      <div className="mt-2 flex items-center gap-2">
-        <span className="inline-block size-3 rounded-full border border-white bg-[#d946ef]" />
-        <span className="text-gray-300">Biodiversity</span>
+        <svg width="12" height="14" viewBox="0 0 24 28" className="shrink-0">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#0284c7" stroke="#fff" strokeWidth="2"/>
+        </svg>
+        <span className="text-gray-300">Selected Trail</span>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <span className="relative flex size-2.5 items-center justify-center">

@@ -8,7 +8,7 @@ import { api, type ApiTrail } from "@/api/client";
 
 // ── Shared types ────────────────────────────────────────────────────────
 
-export type WaypointKind = "shelter" | "spring" | "biodiversity";
+export type WaypointKind = "shelter" | "spring";
 
 export type Waypoint = {
   kind: WaypointKind;
@@ -199,48 +199,34 @@ function mockWaypoints(id: string): Waypoint[] {
       { kind: "shelter", name: "Astraka Alpine Refuge", dLat: 0.018, dLng: -0.012 },
       { kind: "spring", name: "Voidomatis Riverhead Springs", dLat: -0.015, dLng: -0.022 },
       { kind: "spring", name: "Drakolimni High Mountain Spring", dLat: 0.005, dLng: 0.018 },
-      { kind: "biodiversity", name: "Balkan Chamois (Rupicapra balcanica)", dLat: -0.012, dLng: 0.008 },
-      { kind: "biodiversity", name: "Epirus Lily (Lilium chalcedonicum)", dLat: 0.009, dLng: -0.004 },
     ],
     "menalon": [
       { kind: "shelter", name: "Dimitsana EOS Outpost", dLat: -0.012, dLng: 0.015 },
       { kind: "shelter", name: "Menalon Mountain Base Refuge", dLat: 0.014, dLng: 0.01 },
       { kind: "spring", name: "Lousios Hydro-Canyon Head", dLat: -0.011, dLng: -0.006 },
-      { kind: "biodiversity", name: "Griffon Vulture (Gyps fulvus) Nesting Zone", dLat: 0.006, dLng: -0.019 },
-      { kind: "biodiversity", name: "Greek Fir (Abies cephalonica) Canopy", dLat: -0.004, dLng: 0.008 },
     ],
     "samaria-east": [
       { kind: "shelter", name: "Aradena Steel Gorge Shelter", dLat: 0.009, dLng: -0.009 },
       { kind: "spring", name: "Agios Ioannis Forest Well", dLat: 0.014, dLng: 0.005 },
-      { kind: "biodiversity", name: "Cretan Wild Goat (Kri-Kri Capra hircus)", dLat: -0.014, dLng: -0.021 },
-      { kind: "biodiversity", name: "Cretan Dittany (Origanum dictamnus)", dLat: -0.008, dLng: 0.011 },
     ],
     "olympus-enipeas": [
       { kind: "shelter", name: "Refuge A — Spilios Agapitos", dLat: 0.02, dLng: 0.005 },
       { kind: "shelter", name: "Vassilios Ithakisios Emergency Bivouac", dLat: 0.028, dLng: -0.014 },
       { kind: "spring", name: "Enipeas Cascading Waterfall Pool", dLat: -0.01, dLng: -0.013 },
       { kind: "spring", name: "Prionia Stream Basin", dLat: 0.004, dLng: 0.012 },
-      { kind: "biodiversity", name: "Olympus Violet (Viola delphinantha - Endemic)", dLat: 0.012, dLng: 0.014 },
-      { kind: "biodiversity", name: "Golden Eagle (Aquila chrysaetos) Flyway", dLat: -0.018, dLng: 0.022 },
     ],
     "tilos-loop": [
       { kind: "spring", name: "Eristos Artesian Well Node", dLat: 0.006, dLng: 0.01 },
       { kind: "spring", name: "Mikro Chorio Oasis Aquifer", dLat: 0.021, dLng: -0.015 },
-      { kind: "biodiversity", name: "Mediterranean Monk Seal Cove (Monachus monachus)", dLat: -0.014, dLng: -0.008 },
-      { kind: "biodiversity", name: "Eleonora's Falcon (Falco eleonorae)", dLat: 0.011, dLng: 0.024 },
     ],
     "mainalon-elati": [
       { kind: "shelter", name: "Pertouli Alpine Forest Hut", dLat: 0.011, dLng: -0.012 },
       { kind: "spring", name: "Mana Tou Nerou Springway", dLat: -0.005, dLng: -0.008 },
-      { kind: "biodiversity", name: "Dalmatian Algyroides (Algyroides nigropunctatus)", dLat: -0.009, dLng: 0.014 },
-      { kind: "biodiversity", name: "Wild Rock Thyme (Thymus serpyllum)", dLat: 0.007, dLng: -0.003 },
     ],
     "mt-pelion": [
       { kind: "shelter", name: "Tsagarada Stone Shelter", dLat: 0.016, dLng: 0.012 },
       { kind: "spring", name: "Mylopotamos Valley Spring", dLat: -0.013, dLng: 0.007 },
       { kind: "spring", name: "Centaur Forest Gorge Creek", dLat: 0.003, dLng: -0.005 },
-      { kind: "biodiversity", name: "Centaurea pelia (Rare Local Endemic)", dLat: 0.009, dLng: -0.011 },
-      { kind: "biodiversity", name: "European Badger (Meles meles) Sighting", dLat: -0.018, dLng: 0.014 },
     ],
   };
   return presets[id] ?? [];
@@ -282,12 +268,14 @@ function apiTrailToTrail(a: ApiTrail): Trail {
     sustainabilityNote: a.sustainabilityNote,
     safety: a.safety,
     route: a.route ?? [],
-    waypoints: (a.waypoints ?? []).map((w) => ({
-      kind: w.kind,
-      name: w.name,
-      dLat: w.dLat,
-      dLng: w.dLng,
-    })),
+    waypoints: (a.waypoints ?? [])
+      .filter((w) => w.kind === "shelter" || w.kind === "spring")
+      .map((w) => ({
+        kind: w.kind as WaypointKind,
+        name: w.name,
+        dLat: w.dLat,
+        dLng: w.dLng,
+      })),
   };
 }
 
