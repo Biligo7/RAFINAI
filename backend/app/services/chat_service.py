@@ -1,5 +1,9 @@
-# backend/app/services/chat_service.py
-"""Chat completion orchestration — streams tokens from the AI provider."""
+"""Chat completion orchestration — streams tokens from the AI provider.
+
+Combines two context-enrichment strategies:
+1. Cached trail catalog: injected into system prompt from Postgres cache
+2. Per-query live grounding: AI extracts location → live weather/routing/biodiversity
+"""
 
 from __future__ import annotations
 
@@ -28,14 +32,11 @@ class StreamingChatResult:
 
 
 async def extract_location_with_ai(user_input: str, provider, request_id: str) -> str | None:
-    """Pro Pipeline: Dynamically handles zero-token testing in mock mode,
-    then automatically engages the real LLM when credentials are provided.
+    """Extracts a Greek geographic entity from user input.
+    Uses mock heuristics in mock mode, real LLM NER in production.
     """
     clean_input = user_input.lower().strip()
 
-    # =========================================================================
-    # 🎯 ZERO-TOKEN HACKATHON DEBUGGER (Simulates Stage 1 AI Parser)
-    # =========================================================================
     if settings.ai_provider == "mock":
         if any(x in clean_input for x in ["olympus", "olymi", "olimbos"]):
             return "Mount Olympus"
@@ -46,9 +47,7 @@ async def extract_location_with_ai(user_input: str, provider, request_id: str) -
         elif "crete" in clean_input:
             return "Crete"
         return None
-    # =========================================================================
 
-    # 🚀 PRODUCTION STAGE 1: Real LLM Named Entity Recognition
     extraction_prompt = (
         "You are a strict geographic entity extraction utility for a Greek hiking application. "
         "Identify the main mountain, town, or trail network. Fix abbreviations (e.g. 'Mt. Olympus' -> 'Mount Olympus'). "
@@ -60,7 +59,7 @@ async def extract_location_with_ai(user_input: str, provider, request_id: str) -
             ChatCompletionMessage(role="system", content=extraction_prompt),
             ChatCompletionMessage(role="user", content=f"Extract from: {user_input}")
         ]
-        
+
         raw_response = await _get_chat_completion(
             provider,
             messages=messages,
@@ -69,7 +68,7 @@ async def extract_location_with_ai(user_input: str, provider, request_id: str) -
             max_tokens=20,
             request_id=request_id,
         )
-        
+
         clean_result = raw_response.strip().replace('"', '').replace("'", "")
         if clean_result.lower() == "none" or not clean_result:
             return None
@@ -131,13 +130,18 @@ async def generate_chat_response(
                 + user_prefs["preferences_text"]
             )
 
+    # Strategy 1: Inject cached trail catalog for passive context
+    trail_context = await _build_trail_context()
+    if trail_context:
+        system_prompt += trail_context
+
+    # Strategy 2: Per-query live grounding pipeline
     grounding_context = ""
     user_input_lower = user_message.content.lower() if user_message and user_message.content else ""
 
     detected_location = None
     overtourism_redirect = False
 
-    # 1. Run Dynamic Eurostat Sustainability Check Layer
     sustainability_alert = evaluate_sustainability_constraints(user_input_lower)
 
     if sustainability_alert and sustainability_alert["is_overrun"]:
@@ -149,15 +153,15 @@ async def generate_chat_response(
             f"- Infrastructural Load: {sustainability_alert['infrastructure_strain']}/100\n"
             f"- Environmental Assessment: {sustainability_alert['educational_rationale']}\n"
             f"- MANDATORY POLICY ACTION: Warmly inform the user about these environmental statistics "
-            f"and dynamically pivot their interest to our verified sustainable alternative: {sustainability_alert['alternative_pivot']}.")
-        detected_location = sustainability_alert["alternative_pivot"].split(" ")[0] 
+            f"and dynamically pivot their interest to our verified sustainable alternative: {sustainability_alert['alternative_pivot']}."
+        )
+        detected_location = sustainability_alert["alternative_pivot"].split(" ")[0]
         overtourism_redirect = True
-    
-    # 2. Automated Location Entity Extraction
+
     if not overtourism_redirect:
         trigger_keywords = ["hike", "climb", "visit", "trail", "near", "in", "at", "about", "for", "weather"]
         words = user_message.content.split() if user_message and user_message.content else []
-        
+
         for i, word in enumerate(words):
             clean_word = word.lower().strip("?,.!")
             if clean_word in trigger_keywords and i + 1 < len(words):
@@ -165,15 +169,14 @@ async def generate_chat_response(
                 if potential_entity.lower() not in ["a", "the", "it", "this", "my", "your"]:
                     detected_location = potential_entity
                     break
-                    
+
     if not overtourism_redirect:
         detected_location = await extract_location_with_ai(
-            user_message.content, 
-            provider, 
-            request_id
+            user_message.content,
+            provider,
+            request_id,
         )
-        
-    # 3. Execute Unified Pure-API Live Data Ingestion Pipeline
+
     if detected_location:
         detected_location = (
             detected_location
@@ -185,17 +188,17 @@ async def generate_chat_response(
         )
         try:
             from app.services.hikers_data import (
-                fetch_location_coordinates, 
-                fetch_live_weather, 
+                fetch_location_coordinates,
+                fetch_live_weather,
                 fetch_osm_trails,
-                fetch_ors_routing, 
-                fetch_inaturalist_biodiversity, 
-                fetch_reddit_trail_reports
+                fetch_ors_routing,
+                fetch_inaturalist_biodiversity,
+                fetch_reddit_trail_reports,
             )
-            
+
             logger.info("executing.complete.makeathon.pipeline", chat_id=chat_id, location=detected_location)
             coordinates = await fetch_location_coordinates(detected_location)
-            
+
             if coordinates:
                 lat, lon = coordinates
                 weather = await fetch_live_weather(lat, lon)
@@ -203,7 +206,7 @@ async def generate_chat_response(
                 routing = await fetch_ors_routing(lat, lon)
                 fauna = await fetch_inaturalist_biodiversity(lat, lon)
                 reddit_reports = await fetch_reddit_trail_reports(detected_location)
-                
+
                 grounding_context += f"\n[AUTOMATED REAL-TIME GROUNDING MATRIX FOR: {detected_location.upper()}]:\n"
                 grounding_context += f"- Geographic Coordinates: Latitude {lat}, Longitude {lon}\n"
                 grounding_context += f"- Current Safety Conditions: {weather['temp']}°C, {weather['condition']}\n"
@@ -213,15 +216,15 @@ async def generate_chat_response(
                     f"Est. Duration = {routing['duration_mins']} mins | "
                     f"Net Elevation Ascent = +{routing['ascent_m']} m\n"
                 )
-                
+
                 if fauna:
-                    grounding_context += f"- Local Ecosystem Observations (iNaturalist): Native species spotted near trail: {', '.join(fauna)}\n"
-                
+                    grounding_context += f"- Local Ecosystem Observations (iNaturalist): Native species spotted near trail: {', '.join(str(f) for f in fauna)}\n"
+
                 if reddit_reports:
                     grounding_context += "- Recent Community Field Intelligence (Reddit/Forums):\n"
                     for report in reddit_reports:
                         grounding_context += f"  * Live Forum Log: \"{report}\"\n"
-                
+
                 if not weather.get("is_safe", True):
                     grounding_context += (
                         "\n[CRITICAL SAFETY WARNING]: Extreme weather/wind vectors detected for this trek. "
@@ -229,23 +232,21 @@ async def generate_chat_response(
                     )
                 else:
                     grounding_context += "- Route Safety Clearance: Weather verified stable for hiking.\n"
-                
+
                 if trails:
                     grounding_context += "\n[VERIFIED OPENSTREETMAP TRACKS FOR REGION]:\n"
                     for idx, trail in enumerate(trails[:3]):
                         t_name = trail.get("name", f"Local path near {detected_location}")
                         t_diff = trail.get("difficulty", "Moderate")
-                        # 🔧 FIXED: Explicitly supply the active ID so the LLM can use it for cards
                         t_id = trail.get("id") or str(t_name.lower().replace(" ", "-"))
                         grounding_context += f"  * Path {idx+1}: Name='{t_name}' (ID: '{t_id}', Difficulty: '{t_diff}')\n"
-                        
+
         except Exception as err:
             logger.error("automated.grounding.pipeline.failed", error=str(err), chat_id=chat_id)
 
-    # 🔧 INJECT RE-ORDERED DIRECTIVES AND CONTEXT DATA AT THE BASE
     if grounding_context:
         system_prompt += f"\n\nCore Reality Context Matrix:{grounding_context}\n"
-        
+
     system_prompt += (
         "\n\n[CRITICAL GROUNDING DIRECTIVES]:"
         "\n1. You MUST explicitly quote the exact weather numbers (temp, condition, wind) provided in the 'Core Reality Context Matrix'."
@@ -311,7 +312,7 @@ async def generate_chat_response(
             logger.error("Failed to persist failed assistant message")
         raise
 
-    # 🚀 AUTOMATED ZERO-MOCK STREAMING TRAILER APPRENDER
+    # Append trail marker if the LLM forgot to include one
     if "[[trails:" not in full and detected_location:
         try:
             from app.services.hikers_data import fetch_live_osm_trails_network
@@ -364,6 +365,41 @@ def _total_chars(messages: list[ChatCompletionMessage]) -> int:
         else:
             total += sum(len(str(part.get("text", ""))) for part in message.content)
     return total
+
+
+async def _build_trail_context() -> str:
+    """Build a compact trail + weather summary to inject into the system prompt."""
+    if settings.trail_source == "mock":
+        return ""
+    try:
+        from app.db.pool import get_pool
+        from app.services.weather import get_cached_weather, weather_to_safety
+
+        pool = await get_pool()
+        rows = await pool.fetch(
+            "SELECT id, name, region, difficulty, length_km, elevation_m FROM cached_trails ORDER BY name LIMIT 30"
+        )
+        if not rows:
+            return ""
+
+        lines = [
+            "\n\n## Available Greek Trails (live from OpenStreetMap)",
+            "When the user asks for trail recommendations, prefer trails from this catalog. "
+            "Reference them with [[trails:ID]] markers so the UI renders trail cards.",
+        ]
+        for r in rows:
+            weather = await get_cached_weather(pool, r["id"])
+            weather_note = ""
+            if weather:
+                safety = weather_to_safety(weather)
+                weather_note = f" | Weather: {safety['label']}"
+            lines.append(
+                f"- **{r['name']}** ({r['region']}) — {r['difficulty']}, "
+                f"{r['length_km']}km, +{r['elevation_m']}m | ID: {r['id']}{weather_note}"
+            )
+        return "\n".join(lines)
+    except Exception:
+        return ""
 
 
 def _with_image_parts(content: str, images: list[ImageAttachment]) -> list[dict[str, Any]]:

@@ -15,6 +15,7 @@ MIGRATIONS: list[tuple[str, Path]] = [
     ("001_initial", _MIGRATIONS_DIR / "schema.sql"),
     ("002_user_preferences", _MIGRATIONS_DIR / "002_user_preferences.sql"),
     ("003_app_users_external_subject_unique_fix", _MIGRATIONS_DIR / "003_app_users_external_subject_unique_fix.sql"),
+    ("004_trails_cache", _MIGRATIONS_DIR / "004_trails_cache.sql"),
 ]
 
 

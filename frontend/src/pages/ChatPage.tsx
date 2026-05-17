@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { MapPanel } from "@/components/MapPanel";
 import { toast } from "sonner";
-import { getTrailById, type Trail } from "@/lib/trails";
+import { getTrailById, ensureTrailsLoaded, type Trail } from "@/lib/trails";
+import { api } from "@/api/client";
 
 type Injection = { text: string; trailIds: string[]; nonce: number } | null;
 
@@ -24,6 +25,9 @@ export default function ChatPage() {
     setInjection(null);
   }, [threadId]);
 
+  // Pre-load live trail catalog from the backend
+  useEffect(() => { ensureTrailsLoaded(); }, []);
+
   const handlePin = (id: string) => {
     const trail = getTrailById(id);
     if (!trail) return;
@@ -39,33 +43,53 @@ export default function ChatPage() {
     setRerouting(true);
     toast("Checking weather signals…", {
       description:
-        "Cross-referencing OpenWeatherMap radar for the next 6 hours.",
+        "Cross-referencing OpenWeatherMap for the next 24 hours.",
     });
+
+    // Attempt real weather fetch
+    let rainDetected = false;
+    let weatherLabel = "";
+    try {
+      const { weather, safety } = await api.getTrailWeather(trail.id);
+      rainDetected = weather.rain_next_24h ||
+        ["rain", "drizzle", "thunderstorm"].includes(weather.condition.toLowerCase());
+      weatherLabel = safety.label;
+    } catch {
+      // Weather API unavailable — fall back to mock behavior
+      rainDetected = true;
+      weatherLabel = "radar shows showers in ~3h";
+    }
 
     const altId = trail.rainAlternativeId;
     const alt = altId ? getTrailById(altId) : undefined;
 
-    await new Promise((r) => setTimeout(r, 1600));
-
-    if (alt) {
+    if (rainDetected && alt) {
       setHighlighted((h) => (h.includes(alt.id) ? h : [...h, alt.id]));
       setInjection({
         nonce: Date.now(),
         trailIds: [trail.id, alt.id],
         text:
-          `🌧️ **Rain incoming over ${trail.region}** (radar shows showers in ~3h).\n\n` +
+          `🌧️ **Rain incoming over ${trail.region}** (${weatherLabel}).\n\n` +
           `I'm re-routing you off ${trail.name}'s exposed ridgeline. ` +
           `Try this lower-altitude option instead — sheltered, safer, and just as scenic:\n\n` +
           `[[trails:${alt.id}]]\n\n` +
           `The original route now appears in sky-blue dashes on the map so you can compare.`,
+      });
+    } else if (rainDetected) {
+      setInjection({
+        nonce: Date.now(),
+        trailIds: [trail.id],
+        text:
+          `🌧️ ${weatherLabel} — ${trail.name} is already a low-altitude option, ` +
+          `so no re-route is needed. Pack a shell and you're good.`,
       });
     } else {
       setInjection({
         nonce: Date.now(),
         trailIds: [trail.id],
         text:
-          `🌧️ Weather check complete — ${trail.name} is already a low-altitude option, ` +
-          `so no re-route is needed. Pack a shell and you're good.`,
+          `☀️ Weather check complete — **no rain expected** near ${trail.name}. ` +
+          `${weatherLabel}. Trail conditions look great!`,
       });
     }
 

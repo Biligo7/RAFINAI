@@ -87,7 +87,11 @@ export function ChatPanel({
 
   useQuery<Trail[]>({
     queryKey: ["trails"],
-    queryFn: async () => (await fetch("/api/trails")).json(),
+    queryFn: async () => {
+      const res = await fetch("/api/trails");
+      const data = await res.json();
+      return Array.isArray(data) ? data : data.trails ?? [];
+    },
   });
 
   useEffect(() => {
@@ -488,7 +492,11 @@ function MessageBubble({
 
   const { data: serverTrails = [] } = useQuery<Trail[]>({
     queryKey: ["trails"],
-    queryFn: async () => (await fetch("/api/trails")).json(),
+    queryFn: async () => {
+      const res = await fetch("/api/trails?popular_only=false&limit=500");
+      const data = await res.json();
+      return Array.isArray(data) ? data : data.trails ?? [];
+    },
     enabled: trailIds.length > 0,
   });
 

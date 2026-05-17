@@ -167,6 +167,61 @@ export async function streamChatMessage(
   return completed ?? fromTokens;
 }
 
+// --- Trail types (from backend /api/trails) ---
+
+export interface TrailSafety {
+  status: "safe" | "caution" | "warning";
+  label: string;
+}
+
+export interface TrailWeather {
+  condition: string;
+  description: string;
+  temp_c: number | null;
+  feels_like_c: number | null;
+  humidity: number | null;
+  wind_speed_ms: number | null;
+  clouds_pct: number;
+  rain_next_24h: boolean;
+  icon: string;
+  fetched_at: string;
+}
+
+export interface TrailWaypoint {
+  kind: "shelter" | "spring" | "biodiversity";
+  name: string;
+  dLat: number;
+  dLng: number;
+}
+
+export interface ApiTrail {
+  id: string;
+  osmId?: number;
+  name: string;
+  region: string;
+  lat: number;
+  lng: number;
+  difficulty: "Easy" | "Moderate" | "Strenuous";
+  lengthKm: number;
+  elevationM: number;
+  durationH: number;
+  blurb: string;
+  vibe: string;
+  image: string;
+  sustainability: number;
+  sustainabilityNote: string;
+  safety: TrailSafety;
+  route: [number, number][];
+  waypoints: TrailWaypoint[];
+  weather?: TrailWeather;
+}
+
+export interface TrailWeatherResponse {
+  weather: TrailWeather;
+  safety: TrailSafety;
+  cached: boolean;
+}
+
 export interface PreferencesResponse {
   onboardingCompleted: boolean;
   preferences: string[] | null;
@@ -209,4 +264,28 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ preferences }),
     }),
+
+  // --- Trails ---
+
+  listTrails: (params?: { region?: string; difficulty?: string; limit?: number; refresh?: boolean; popular_only?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (params?.region) qs.set("region", params.region);
+    if (params?.difficulty) qs.set("difficulty", params.difficulty);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.refresh) qs.set("refresh", "true");
+    if (params?.popular_only === false) qs.set("popular_only", "false");
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return request<{ trails: ApiTrail[]; source: string; total: number }>(`/api/trails${suffix}`);
+  },
+
+  getTrail: (id: string) => request<ApiTrail>(`/api/trails/${id}`),
+
+  getTrailWeather: (id: string) =>
+    request<TrailWeatherResponse>(`/api/trails/${id}/weather`),
+
+  computeRoute: (id: string) =>
+    request<ApiTrail>(`/api/trails/${id}/route`, { method: "POST" }),
+
+  refreshTrails: () =>
+    request<{ refreshed: number; source: string }>("/api/trails/refresh", { method: "POST" }),
 };

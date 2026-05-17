@@ -48,6 +48,22 @@ class Settings(BaseSettings):
     run_migrations_on_startup: bool = True
     auth_enabled: bool = False
 
+    # Trail data — "mock" uses hardcoded catalog; "live" fetches from OSM/ORS/weather APIs
+    trail_source: str = "live"
+    ors_api_key: str = ""
+    openweather_api_key: str = ""
+    # Overpass endpoint (public instance, no key needed)
+    overpass_url: str = "https://overpass-api.de/api/interpreter"
+    # Cache TTLs in seconds
+    trail_cache_ttl: int = 86400       # 24 h for OSM trail data
+    weather_cache_ttl: int = 3600      # 1 h for weather
+    route_cache_ttl: int = 604800      # 7 days for ORS polylines
+
+    @property
+    def openrouteservice_api_key(self) -> str:
+        """Alias so hikers_data.py can use settings.openrouteservice_api_key."""
+        return self.ors_api_key
+
     @property
     def sql_enabled(self) -> bool:
         return bool(self.pg_host and self.pg_database and self.pg_user and self.pg_password)
