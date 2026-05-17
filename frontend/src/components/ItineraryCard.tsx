@@ -163,7 +163,7 @@ export function ItineraryCard({
               type="button"
               onClick={() => onSave(trail.id)}
               disabled={isSaved}
-              className="flex min-w-0 items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-[13px] font-semibold text-foreground shadow-[var(--shadow-soft)] transition hover:border-primary/40 hover:text-primary disabled:cursor-default disabled:border-[oklch(0.85_0.1_145)] disabled:bg-[oklch(0.96_0.04_145)] disabled:text-[oklch(0.38_0.12_145)]"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-[13px] font-semibold text-foreground shadow-[var(--shadow-soft)] transition hover:border-primary/40 hover:text-primary disabled:cursor-default disabled:border-[oklch(0.85_0.1_145)] disabled:bg-[oklch(0.96_0.04_145)] disabled:text-[oklch(0.38_0.12_145)]"
             >
               {isSaved ? (
                 <BookmarkCheck className="size-3.5 shrink-0" />
@@ -177,7 +177,7 @@ export function ItineraryCard({
           <button
             type="button"
             onClick={() => onPin(trail.id)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--gradient-aegean)] px-3 py-2 text-[13px] font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition hover:opacity-95 active:scale-[0.99]"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-[13px] font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition hover:opacity-95 active:scale-[0.99]"
           >
             <MapPin className="size-3.5" />
             Pin to map

@@ -31,7 +31,7 @@ const WAYPOINT_STYLE: Record<WaypointKind, { emoji: string; bg: string; label: s
 const GREECE_BOUNDS = { latMin: 34.5, latMax: 40.0, lngMin: 19.3, lngMax: 27.0 };
 
 function isInGreece(lat: number, lng: number): boolean {
-  if(lat >= 40.0 && lng >= 24.5 && lat <= 41.5 && lng <= 27.0) {
+  if(lat >= 40.0 && lng >= 21.0 && lat <= 41.5 && lng <= 27.0) {
     return true;
   }
   return (

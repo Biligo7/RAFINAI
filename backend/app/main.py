@@ -14,7 +14,7 @@ from app.config import settings
 from app.db.pool import close_pool
 from app.db.repository import log_repository_mode
 from app.logging import get_logger, setup_logging
-from app.routes import chats, config, feedback, health, messages, trails, training, users
+from app.routes import chats, config, feedback, health, messages, training, users, trails
 
 logger = get_logger("app")
 
@@ -86,10 +86,9 @@ def create_app() -> FastAPI:
     app.include_router(chats.router)
     app.include_router(messages.router)
     app.include_router(feedback.router)
-    app.include_router(trails.router)
     app.include_router(training.router)
     app.include_router(users.router)
-
+    app.include_router(trails.router)
     return app
 
 
