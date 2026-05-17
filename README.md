@@ -56,7 +56,7 @@ flowchart TB
 
     subgraph External
         SB[(Supabase Auth)]
-        AI[LLM API optional]
+        AI[LLM API]
         MAP[OSM / ORS / weather / biodiversity APIs]
     end
 
