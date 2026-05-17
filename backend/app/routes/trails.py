@@ -154,7 +154,7 @@ async def list_trails(
     refresh: bool = Query(False, description="Force re-fetch from OSM"),
     region: str | None = Query(None, description="Filter by region substring"),
     difficulty: str | None = Query(None, description="Filter by difficulty"),
-    limit: int = Query(200, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=2000),
 ):
     if settings.trail_source == "mock":
         return {"trails": [], "source": "mock"}

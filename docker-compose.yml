@@ -22,13 +22,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
-        # If `pip install` fails with SSL: CERTIFICATE_VERIFY_FAILED (common
-        # behind corporate TLS inspection), keep these flags. Remove them on
-        # networks where PyPI's certificate chain verifies normally.
         PIP_EXTRA_INSTALL_ARGS: "--trusted-host pypi.org --trusted-host files.pythonhosted.org"
     container_name: aichat-backend
-    # AI_* and OPENAI_* come from ./backend/.env (copy from backend/.env.example).
-    # Values below override the file — keeps Docker Postgres, not localhost from .env.
     env_file:
       - ./backend/.env
     environment:
@@ -49,6 +44,8 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    volumes:
+      - ./backend:/app
 
   frontend:
     build:
@@ -61,6 +58,11 @@ services:
       - backend
     ports:
       - "8080:8080"
+    # 👇 THIS IS THE NEW SECTION 👇
+    volumes:
+      - ./frontend:/app         # Links your local frontend folder to the container
+      - /app/node_modules       # Prevents local node_modules from breaking the container
+      - /app/.next              # (Optional) Add this if using Next.js to prevent cache errors
 
 volumes:
   postgres-data:

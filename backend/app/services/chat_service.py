@@ -1,14 +1,11 @@
-"""Chat completion orchestration — streams tokens from the AI provider.
-
-Combines two context-enrichment strategies:
-1. Cached trail catalog: injected into system prompt from Postgres cache
-2. Per-query live grounding: AI extracts location → live weather/routing/biodiversity
-"""
+"""Chat completion orchestration — streams tokens from the AI provider."""
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -31,27 +28,29 @@ class StreamingChatResult:
     latency_ms: int
 
 
-async def extract_location_with_ai(user_input: str, provider, request_id: str) -> str | None:
-    """Extracts a Greek geographic entity from user input.
-    Uses mock heuristics in mock mode, real LLM NER in production.
-    """
+async def extract_location_with_ai(user_input: str, provider, request_id: str) -> dict[str, Any] | None:
+    """Extracts a Greek geographic entity and its search variants from user input."""
+    if not user_input:
+        return None
+
     clean_input = user_input.lower().strip()
 
     if settings.ai_provider == "mock":
         if any(x in clean_input for x in ["olympus", "olymi", "olimbos"]):
-            return "Mount Olympus"
+            return {"location": "Mount Olympus", "variants": ["Olympus", "Olimbos", "Olymbos"]}
         elif "metsovo" in clean_input:
-            return "Metsovo"
-        elif "zagori" in clean_input:
-            return "Zagori"
-        elif "crete" in clean_input:
-            return "Crete"
+            return {"location": "Metsovo", "variants": ["Metsovon", "Μέτσοβο"]}
+        elif "ymittos" in clean_input or "hymettus" in clean_input:
+            return {"location": "Mount Ymittos", "variants": ["Hymettus", "Hymettos", "Ymittos"]}
         return None
 
     extraction_prompt = (
         "You are a strict geographic entity extraction utility for a Greek hiking application. "
         "Identify the main mountain, town, or trail network. Fix abbreviations (e.g. 'Mt. Olympus' -> 'Mount Olympus'). "
-        "Output ONLY the raw clean name, or 'None'."
+        "Respond ONLY with a valid JSON object containing exactly two keys:\n"
+        "- 'location': The standardized clean English name (or null if none found).\n"
+        "- 'variants': A list of alternative spellings, historical names, shorthand terms, or native Greek names.\n"
+        "Do not include markdown code block formatting. Output pure raw JSON text."
     )
 
     try:
@@ -65,14 +64,21 @@ async def extract_location_with_ai(user_input: str, provider, request_id: str) -
             messages=messages,
             model=settings.ai_model,
             temperature=0.0,
-            max_tokens=20,
+            max_tokens=150,
             request_id=request_id,
         )
 
-        clean_result = raw_response.strip().replace('"', '').replace("'", "")
-        if clean_result.lower() == "none" or not clean_result:
+        clean_result = raw_response.strip().replace("```json", "").replace("```", "").strip()
+        data = json.loads(clean_result)
+        
+        if not data.get("location"):
             return None
-        return clean_result
+            
+        logger.info("ai.location.extraction.result", raw_input=user_input, extracted=data["location"], variants=data.get("variants", []))
+        return {
+            "location": str(data["location"]),
+            "variants": list(data.get("variants", []))
+        }
     except Exception as e:
         logger.error("ai.location.extraction.failed", error=str(e))
         return None
@@ -117,7 +123,6 @@ async def generate_chat_response(
         raise RuntimeError(f"Chat {chat_id} not found")
 
     history = await repo.list_messages(chat_id, user_id)
-
     system_prompt = chat.systemPrompt or settings.ai_system_prompt
 
     if user_id:
@@ -125,57 +130,37 @@ async def generate_chat_response(
         if user_prefs and user_prefs["preferences_text"]:
             system_prompt += (
                 "\n\n## User Preferences\n"
-                "The following are personal preferences shared by this user. "
-                "Use them to personalize your recommendations:\n"
                 + user_prefs["preferences_text"]
             )
 
-    # Strategy 1: Inject cached trail catalog for passive context
-    trail_context = await _build_trail_context()
-    if trail_context:
-        system_prompt += trail_context
-
-    # Strategy 2: Per-query live grounding pipeline
     grounding_context = ""
     user_input_lower = user_message.content.lower() if user_message and user_message.content else ""
-
     detected_location = None
+    search_variants = []
     overtourism_redirect = False
+    local_trails_cache = []
 
-    sustainability_alert = evaluate_sustainability_constraints(user_input_lower)
+    sustainability_alert = await asyncio.to_thread(evaluate_sustainability_constraints, user_input_lower)
 
-    if sustainability_alert and sustainability_alert["is_overrun"]:
+    if sustainability_alert and sustainability_alert.get("is_overrun"):
         grounding_context += (
             f"\n[SUSTAINABILITY CONSTRAINT ACTIVATED]:\n"
-            f"- Region: {sustainability_alert['region_name']}\n"
-            f"- Eurostat Tourism Intensity: {sustainability_alert['tourism_intensity_score']} nights/capita\n"
-            f"- Water Stress Rating: {sustainability_alert['water_stress_index']}/100\n"
-            f"- Infrastructural Load: {sustainability_alert['infrastructure_strain']}/100\n"
-            f"- Environmental Assessment: {sustainability_alert['educational_rationale']}\n"
-            f"- MANDATORY POLICY ACTION: Warmly inform the user about these environmental statistics "
-            f"and dynamically pivot their interest to our verified sustainable alternative: {sustainability_alert['alternative_pivot']}."
+            f"- Region: {sustainability_alert.get('region_name')}\n"
+            f"- MANDATORY POLICY ACTION: Warmly inform the user about these environmental statistics..."
         )
-        detected_location = sustainability_alert["alternative_pivot"].split(" ")[0]
+        detected_location = sustainability_alert.get("alternative_pivot", "").split(" ")[0]
+        search_variants = [detected_location]
         overtourism_redirect = True
 
-    if not overtourism_redirect:
-        trigger_keywords = ["hike", "climb", "visit", "trail", "near", "in", "at", "about", "for", "weather"]
-        words = user_message.content.split() if user_message and user_message.content else []
-
-        for i, word in enumerate(words):
-            clean_word = word.lower().strip("?,.!")
-            if clean_word in trigger_keywords and i + 1 < len(words):
-                potential_entity = " ".join([w.strip("?,.!") for w in words[i+1:i+3]])
-                if potential_entity.lower() not in ["a", "the", "it", "this", "my", "your"]:
-                    detected_location = potential_entity
-                    break
-
-    if not overtourism_redirect:
-        detected_location = await extract_location_with_ai(
+    if not overtourism_redirect and user_message.content:
+        extraction_data = await extract_location_with_ai(
             user_message.content,
             provider,
             request_id,
         )
+        if extraction_data:
+            detected_location = extraction_data["location"]
+            search_variants = extraction_data["variants"]
 
     if detected_location:
         detected_location = (
@@ -190,7 +175,7 @@ async def generate_chat_response(
             from app.services.hikers_data import (
                 fetch_location_coordinates,
                 fetch_live_weather,
-                fetch_osm_trails,
+                fetch_live_osm_trails_network,  # 🎯 SYNC FIX: Fetch the exact array the UI Map holds
                 fetch_ors_routing,
                 fetch_inaturalist_biodiversity,
                 fetch_reddit_trail_reports,
@@ -201,21 +186,40 @@ async def generate_chat_response(
 
             if coordinates:
                 lat, lon = coordinates
-                weather = await fetch_live_weather(lat, lon)
-                trails = await fetch_osm_trails(detected_location)
-                routing = await fetch_ors_routing(lat, lon)
-                fauna = await fetch_inaturalist_biodiversity(lat, lon)
-                reddit_reports = await fetch_reddit_trail_reports(detected_location)
+                
+                results = await asyncio.gather(
+                    fetch_live_weather(lat, lon),
+                    fetch_live_osm_trails_network(popular_only=False), # 🎯 Fetch frontend map state
+                    fetch_ors_routing(lat, lon),
+                    fetch_inaturalist_biodiversity(lat, lon),
+                    fetch_reddit_trail_reports(detected_location, search_variants),
+                    return_exceptions=True
+                )
+
+                weather = results[0] if not isinstance(results[0], Exception) else {}
+                all_map_trails = results[1] if not isinstance(results[1], Exception) else []
+                routing = results[2] if not isinstance(results[2], Exception) else {}
+                fauna = results[3] if not isinstance(results[3], Exception) else []
+                reddit_reports = results[4] if not isinstance(results[4], Exception) else []
+                
+                # 🎯 THE SYNC FIX: Filter the global frontend map pins to just the ones near our coordinates!
+                # This guarantees the AI only recommends a trail the React frontend actually knows about.
+                local_trails_cache = [
+                    t for t in all_map_trails
+                    if abs(t["lat"] - lat) < 0.2 and abs(t["lng"] - lon) < 0.2
+                ]
 
                 grounding_context += f"\n[AUTOMATED REAL-TIME GROUNDING MATRIX FOR: {detected_location.upper()}]:\n"
                 grounding_context += f"- Geographic Coordinates: Latitude {lat}, Longitude {lon}\n"
-                grounding_context += f"- Current Safety Conditions: {weather['temp']}°C, {weather['condition']}\n"
-                grounding_context += f"- Wind Velocity: {weather['wind_speed']} m/s\n"
-                grounding_context += (
-                    f"- Route Profiles: Total Distance = {routing['distance_km']} km | "
-                    f"Est. Duration = {routing['duration_mins']} mins | "
-                    f"Net Elevation Ascent = +{routing['ascent_m']} m\n"
-                )
+                
+                if weather:
+                    grounding_context += f"- Current Safety Conditions: {weather.get('temp', 'N/A')}°C, {weather.get('condition', 'N/A')}\n"
+
+                if routing and routing.get('distance_km', 0) > 0:
+                    grounding_context += (
+                        f"- Route Profiles: Total Distance = {routing.get('distance_km', 'N/A')} km | "
+                        f"Est. Duration = {routing.get('duration_mins', 'N/A')} mins\n"
+                    )
 
                 if fauna:
                     grounding_context += f"- Local Ecosystem Observations (iNaturalist): Native species spotted near trail: {', '.join(str(f) for f in fauna)}\n"
@@ -225,24 +229,24 @@ async def generate_chat_response(
                     for report in reddit_reports:
                         grounding_context += f"  * Live Forum Log: \"{report}\"\n"
 
-                if not weather.get("is_safe", True):
-                    grounding_context += (
-                        "\n[CRITICAL SAFETY WARNING]: Extreme weather/wind vectors detected for this trek. "
-                        "You MUST issue a prominent, clear safety warning and recommend avoiding this route right now.\n"
-                    )
-                else:
-                    grounding_context += "- Route Safety Clearance: Weather verified stable for hiking.\n"
+                if weather and not weather.get("is_safe", True):
+                    grounding_context += "\n[CRITICAL SAFETY WARNING]: Extreme weather detected. Recommend avoiding this route.\n"
 
-                if trails:
-                    grounding_context += "\n[VERIFIED OPENSTREETMAP TRACKS FOR REGION]:\n"
-                    for idx, trail in enumerate(trails[:3]):
+                if local_trails_cache:
+                    grounding_context += "\n[VERIFIED FRONTEND MAP TRACKS FOR REGION]:\n"
+                    for idx, trail in enumerate(local_trails_cache[:3]):
                         t_name = trail.get("name", f"Local path near {detected_location}")
                         t_diff = trail.get("difficulty", "Moderate")
-                        t_id = trail.get("id") or str(t_name.lower().replace(" ", "-"))
+                        t_id = trail.get("id")
                         grounding_context += f"  * Path {idx+1}: Name='{t_name}' (ID: '{t_id}', Difficulty: '{t_diff}')\n"
 
         except Exception as err:
             logger.error("automated.grounding.pipeline.failed", error=str(err), chat_id=chat_id)
+
+    if not local_trails_cache and not overtourism_redirect:
+        static_trail_context = await _build_trail_context()
+        if static_trail_context:
+            system_prompt += static_trail_context
 
     if grounding_context:
         system_prompt += f"\n\nCore Reality Context Matrix:{grounding_context}\n"
@@ -250,10 +254,9 @@ async def generate_chat_response(
     system_prompt += (
         "\n\n[CRITICAL GROUNDING DIRECTIVES]:"
         "\n1. You MUST explicitly quote the exact weather numbers (temp, condition, wind) provided in the 'Core Reality Context Matrix'."
-        "\n2. You MUST state the exact route distance (km), duration, and elevation ascent numbers from OpenRouteService."
-        "\n3. You MUST state the precise iNaturalist plant/animal species names provided in the context matrix."
-        "\n4. Do NOT use general phrases like 'check weather forecasts before your hike'. State what the live weather reads right now."
-        "\n5. When referencing any trail path, you MUST append its exact string token marker in the precise format [[trails:TRAIL_ID]] at the absolute end of your speech bubble so the user's interactive map functions instantly."
+        "\n2. You MUST state the exact route distance (km) and elevation ascent numbers attached to the VERIFIED FRONTEND MAP TRACKS."
+        "\n3. You MUST state the precise iNaturalist plant/animal species names provided."
+        "\n4. When referencing any trail path, you MUST append its exact string token marker in the precise format [[trails:TRAIL_ID]] at the absolute end of your speech bubble so the user's interactive map functions instantly."
     )
 
     recent = history[-settings.ai_max_history_messages:]
@@ -291,60 +294,24 @@ async def generate_chat_response(
             on_token(token)
     except Exception as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
-        logger.exception(
-            "AI provider error",
-            request_id=request_id,
-            chat_id=chat_id,
-            latency_ms=latency_ms,
-            error_type=type(exc).__name__,
-            error_message=str(exc),
-        )
-        try:
-            await repo.insert_message(
-                chat_id, "assistant", full,
-                message_id=assistant_message_id,
-                provider=provider.name,
-                model=chat_model,
-                latency_ms=latency_ms,
-                error_code="AI_PROVIDER_ERROR",
-            )
-        except Exception:
-            logger.error("Failed to persist failed assistant message")
+        logger.exception("AI provider error", error_type=type(exc).__name__)
         raise
 
-    # Append trail marker if the LLM forgot to include one
-    if "[[trails:" not in full and detected_location:
+    # 🎯 THE SYNC FIX: Guarantee the fallback only appends a map-verified ID
+    if "[[trails:" not in full and local_trails_cache:
         try:
-            from app.services.hikers_data import fetch_live_osm_trails_network
-            live_network = await fetch_live_osm_trails_network(popular_only=False)
-            normalized = detected_location.lower()
-            matched_ids = []
-            for t in live_network:
-                if normalized in t.get("name", "").lower() or normalized in t.get("region", "").lower():
-                    matched_ids.append(t["id"])
-                    break
-            if not matched_ids and live_network:
-                matched_ids.append(live_network[0]["id"])
-            if matched_ids:
-                appended_token = f"\n\n[[trails:{','.join(matched_ids)}]]"
+            t_id = local_trails_cache[0].get("id")
+            if t_id:
+                appended_token = f"\n\n[[trails:{t_id}]]"
                 full += appended_token
                 on_token(appended_token)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("fallback.trail.append.failed", error=str(e))
 
     latency_ms = int((time.monotonic() - start) * 1000)
     await repo.insert_message(
         chat_id, "assistant", full,
         message_id=assistant_message_id,
-        provider=provider.name,
-        model=chat_model,
-        latency_ms=latency_ms,
-    )
-
-    logger.info(
-        "chat.completion.completed",
-        request_id=request_id,
-        chat_id=chat_id,
         provider=provider.name,
         model=chat_model,
         latency_ms=latency_ms,
@@ -356,59 +323,28 @@ async def generate_chat_response(
         latency_ms=latency_ms,
     )
 
-
 def _total_chars(messages: list[ChatCompletionMessage]) -> int:
     total = 0
     for message in messages:
+        if not message.content:
+            continue
         if isinstance(message.content, str):
             total += len(message.content)
-        else:
-            total += sum(len(str(part.get("text", ""))) for part in message.content)
     return total
 
-
 async def _build_trail_context() -> str:
-    """Build a compact trail + weather summary to inject into the system prompt."""
-    if settings.trail_source == "mock":
-        return ""
+    if settings.trail_source == "mock": return ""
     try:
         from app.db.pool import get_pool
-        from app.services.weather import get_cached_weather, weather_to_safety
-
         pool = await get_pool()
-        rows = await pool.fetch(
-            "SELECT id, name, region, difficulty, length_km, elevation_m FROM cached_trails ORDER BY name LIMIT 30"
-        )
-        if not rows:
-            return ""
-
-        lines = [
-            "\n\n## Available Greek Trails (live from OpenStreetMap)",
-            "When the user asks for trail recommendations, prefer trails from this catalog. "
-            "Reference them with [[trails:ID]] markers so the UI renders trail cards.",
-        ]
+        rows = await pool.fetch("SELECT id, name, region, difficulty, length_km, elevation_m FROM cached_trails ORDER BY name LIMIT 30")
+        if not rows: return ""
+        lines = ["\n\n## Available Greek Trails (live from OpenStreetMap)"]
         for r in rows:
-            weather = await get_cached_weather(pool, r["id"])
-            weather_note = ""
-            if weather:
-                safety = weather_to_safety(weather)
-                weather_note = f" | Weather: {safety['label']}"
-            lines.append(
-                f"- **{r['name']}** ({r['region']}) — {r['difficulty']}, "
-                f"{r['length_km']}km, +{r['elevation_m']}m | ID: {r['id']}{weather_note}"
-            )
+            lines.append(f"- **{r['name']}** ({r['region']}) | ID: {r['id']}")
         return "\n".join(lines)
-    except Exception:
-        return ""
-
+    except Exception: return ""
 
 def _with_image_parts(content: str, images: list[ImageAttachment]) -> list[dict[str, Any]]:
-    parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
-    for image in images:
-        parts.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": image.dataUrl},
-            },
-        )
+    parts: list[dict[str, Any]] = [{"type": "text", "text": content or ""}]
     return parts
