@@ -347,4 +347,9 @@ async def _build_trail_context() -> str:
 
 def _with_image_parts(content: str, images: list[ImageAttachment]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = [{"type": "text", "text": content or ""}]
+    for img in images:
+        parts.append({
+            "type": "image_url",
+            "image_url": {"url": img.dataUrl, "detail": "low"},
+        })
     return parts
