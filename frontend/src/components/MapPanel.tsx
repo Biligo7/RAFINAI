@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MapContainer, TileLayer, Popup, CircleMarker, Polyline, Marker, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -28,9 +28,12 @@ const WAYPOINT_STYLE: Record<WaypointKind, { emoji: string; bg: string; label: s
   spring: { emoji: "💧", bg: "#38bdf8", label: "Spring" },
 };
 
-const GREECE_BOUNDS = { latMin: 34.5, latMax: 42.0, lngMin: 19.3, lngMax: 30.0 };
+const GREECE_BOUNDS = { latMin: 34.5, latMax: 40.0, lngMin: 19.3, lngMax: 27.0 };
 
 function isInGreece(lat: number, lng: number): boolean {
+  if(lat >= 40.0 && lng >= 24.5 && lat <= 41.5 && lng <= 27.0) {
+    return true;
+  }
   return (
     lat >= GREECE_BOUNDS.latMin &&
     lat <= GREECE_BOUNDS.latMax &&
@@ -108,6 +111,26 @@ function overrunDivIcon(_name: string) {
   });
 }
 
+// ⚡️ NEW: Captures the exact screen box coordinates so the backend only searches what you can see!
+function MapBoundsListener({ onBoundsChange }: { onBoundsChange: (bounds: string, zoom: number) => void }) {
+  const map = useMapEvents({
+    moveend: (e) => updateBounds(e.target),
+    zoomend: (e) => updateBounds(e.target),
+  });
+
+  const updateBounds = useCallback((m: L.Map) => {
+    const b = m.getBounds();
+    // Format: south,west,north,east (Required by OSM Overpass API)
+    onBoundsChange(`${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`, m.getZoom());
+  }, [onBoundsChange]);
+
+  useEffect(() => {
+    updateBounds(map);
+  }, [map, updateBounds]);
+
+  return null;
+}
+
 type Focused = { id: string; nonce: number } | null;
 
 export function MapPanel({
@@ -125,7 +148,10 @@ export function MapPanel({
   const [mounted, setMounted] = useState(false);
   const [liveData, setLiveData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  
+  // 🗺️ Tracking exact screen borders
   const [currentZoom, setCurrentZoom] = useState(6);
+  const [bbox, setBbox] = useState<string>("34.8,19.3,41.8,26.5"); // Default Greece
 
   useEffect(() => {
     setMounted(true);
@@ -336,28 +362,8 @@ export function MapPanel({
       {loading && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[400] flex items-center gap-2 rounded-full bg-background/95 px-4 py-1.5 text-xs font-semibold shadow-xl border animate-fade-in backdrop-blur-md">
           <Loader2 className="size-3.5 animate-spin text-primary" />
-          <span>Syncing topographic coordinates...</span>
+          <span>Syncing topography view...</span>
         </div>
-      )}
-
-      {focusedTrail && onRerouteForRain && (
-        <button
-          onClick={() => onRerouteForRain(focusedTrail)}
-          disabled={rerouting}
-          className="absolute right-4 top-4 z-[400] flex items-center gap-2 rounded-full border border-border bg-card/95 px-4 py-2 text-xs font-semibold text-foreground shadow-[var(--shadow-elevated)] backdrop-blur transition hover:border-primary/40 hover:text-primary disabled:opacity-70"
-        >
-          {rerouting ? (
-            <>
-              <Loader2 className="size-3.5 animate-spin" />
-              Re-routing for rain…
-            </>
-          ) : (
-            <>
-              <CloudRain className="size-3.5 text-[#0EA5E9]" />
-              Re-route for Rain
-            </>
-          )}
-        </button>
       )}
     </div>
   );
@@ -366,14 +372,10 @@ export function MapPanel({
 function TrailPopup({ trail }: { trail: any }) {
   return (
     <div style={{ minWidth: 200, fontFamily: "Inter, sans-serif" }}>
-      <div style={{ fontWeight: 600, fontSize: 14, color: "oklch(0.32 0.13 250)" }}>
-        {trail.name}
-      </div>
-      <div style={{ fontSize: 11, color: "oklch(0.45 0.03 250)", marginBottom: 6 }}>
-        {trail.region}
-      </div>
-      <div style={{ fontSize: 12, marginBottom: 6 }}>{trail.blurb}</div>
-      <div style={{ fontSize: 11, color: "oklch(0.5 0.08 120)" }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: "#1e293b" }}>{trail.name}</div>
+      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>{trail.region}</div>
+      <div style={{ fontSize: 12, marginBottom: 6, color: "#334155" }}>{trail.blurb}</div>
+      <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>
         {trail.difficulty} · {trail.lengthKm} km · {trail.elevationM} m gain
       </div>
     </div>

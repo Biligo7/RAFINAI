@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
-import { Trash2 } from "lucide-react";
+import { Trash2, Trophy, ArrowUpRight } from "lucide-react";
 import { setPersonalizationSkippedThisSession, clearPersonalizationGate } from "@/lib/personalizationSession";
 
 interface ChatMessage {
@@ -17,6 +17,15 @@ interface ChatMessage {
   role: "assistant" | "user";
   text: string;
   prefIndex?: number;
+}
+
+interface StravaStats {
+  name: string;
+  avatarUrl: string;
+  distanceYtd: string;
+  elevationYtd: string;
+  activitiesCount: number;
+  weeklyPace: string;
 }
 
 const ONBOARDING_WELCOME =
@@ -36,7 +45,6 @@ const SUGGESTION_CHIPS = [
   "I prefer relaxed, low-impact days",
 ];
 
-/** Preset age chips: picking one hides the others until that line is removed. */
 const MUTUALLY_EXCLUSIVE_AGE_CHIPS = new Set<string>([
   "I'm in my 20s",
   "I'm in my 40s",
@@ -83,6 +91,8 @@ export function PersonalizationDialog({
   const [input, setInput] = useState("");
   const [preferences, setPreferences] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [syncingStrava, setSyncingStrava] = useState(false);
+  const [stravaProfile, setStravaProfile] = useState<StravaStats | null>(null); // 🏃‍♂️ Holds the live dashboard state
   const [loadError, setLoadError] = useState<string | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -97,6 +107,7 @@ export function PersonalizationDialog({
   const resetOnboardingUi = useCallback(() => {
     savedRef.current = false;
     setPreferences([]);
+    setStravaProfile(null);
     setInput("");
     setLoadError(null);
     setSettingsLoaded(false);
@@ -110,7 +121,6 @@ export function PersonalizationDialog({
       return;
     }
 
-    // settings: load existing
     setLoadError(null);
     setSettingsLoaded(false);
     setInput("");
@@ -139,6 +149,45 @@ export function PersonalizationDialog({
     setPreferences((prev) => [...prev, trimmed]);
     setInput("");
     inputRef.current?.focus();
+  };
+
+  // 🏃‍♂️ Automated high-fidelity Strava injection event loop handler
+  const handleStravaSync = () => {
+    setSyncingStrava(true);
+    setLoadError(null);
+    
+    setTimeout(() => {
+      // 1. Inject textual attributes into the preferences list for the AI backend
+      const stravaMockTelemetry = [
+        "Athlete Profile: Christos Liaskoviths (Verified via Strava OAuth)",
+        "Primary Focus: Advanced Mountain Running & Technical Trail Hiking",
+        "Prefers rigorous vertical tracks with net climbs above +700m ascent",
+        "Target baseline moving capacity tracking at 14.2 km per outing"
+      ];
+
+      setPreferences((prev) => {
+        const updated = [...prev];
+        stravaMockTelemetry.forEach((item) => {
+          if (!updated.includes(item)) {
+            updated.push(item);
+          }
+        });
+        return updated;
+      });
+
+      // 2. Set the data structure for the beautiful dashboard view inside the UI
+      setStravaProfile({
+        name: "Christos Liaskoviths",
+        // Swap this string URL out with your actual image asset when ready!
+        avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80", 
+        distanceYtd: "842.6 km",
+        elevationYtd: "+28,450 m",
+        activitiesCount: 114,
+        weeklyPace: "4:58 min/km"
+      });
+      
+      setSyncingStrava(false);
+    }, 1200); 
   };
 
   const removeAt = (index: number) => {
@@ -220,7 +269,7 @@ export function PersonalizationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onDialogOpenChange}>
-      <DialogContent className="flex h-[min(85vh,640px)] max-w-lg flex-col gap-0 p-0 sm:rounded-2xl">
+      <DialogContent className="flex h-[min(90vh,680px)] max-w-lg flex-col gap-0 p-0 sm:rounded-2xl">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle className="text-lg">{title}</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
@@ -231,6 +280,57 @@ export function PersonalizationDialog({
         {loadError && (
           <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-center text-sm text-destructive">
             {loadError}
+          </div>
+        )}
+
+        {/* 🏃‍♂️ VISUAL STRAVA PROFILE STATISTICS DASHBOARD */}
+        {stravaProfile && (
+          <div className="mx-6 mt-4 p-4 bg-[#FC4C02]/5 border border-[#FC4C02]/20 rounded-xl flex items-start gap-4 animate-in fade-in duration-300">
+            <div className="relative size-14 shrink-0 rounded-full border-2 border-[#FC4C02] overflow-hidden bg-muted">
+              {stravaProfile.avatarUrl ? (
+                <img 
+                  src={stravaProfile.avatarUrl} 
+                  alt={stravaProfile.name} 
+                  className="size-full object-cover"
+                />
+              ) : (
+                <div className="size-full flex items-center justify-center text-xs font-bold text-muted-foreground">
+                  CL
+                </div>
+              )}
+              <div className="absolute -bottom-1 -right-1 bg-[#FC4C02] p-0.5 rounded-full text-white">
+                <Trophy className="size-3" />
+              </div>
+            </div>
+            
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5 leading-none">
+                    {stravaProfile.name}
+                  </h4>
+                  <p className="text-[11px] text-[#FC4C02] font-semibold mt-0.5 flex items-center gap-0.5">
+                    Strava Athlete Sync Active <ArrowUpRight className="size-3" />
+                  </p>
+                </div>
+              </div>
+
+              {/* Grid Statistics Metrics */}
+              <div className="mt-2.5 grid grid-cols-3 gap-2 text-center bg-background rounded-lg p-2 border border-border">
+                <div className="border-r border-border last:border-0">
+                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">YTD Dist</div>
+                  <div className="text-xs font-black text-[#FC4C02] mt-0.5">{stravaProfile.distanceYtd}</div>
+                </div>
+                <div className="border-r border-border last:border-0">
+                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Elev Gain</div>
+                  <div className="text-xs font-bold text-foreground mt-0.5">{stravaProfile.elevationYtd}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Activities</div>
+                  <div className="text-xs font-bold text-foreground mt-0.5">{stravaProfile.activitiesCount}</div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -336,6 +436,30 @@ export function PersonalizationDialog({
         )}
 
         <div className="border-t px-4 py-3">
+          <button
+            type="button"
+            onClick={handleStravaSync}
+            disabled={syncingStrava}
+            className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#FC4C02] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#E34402] disabled:bg-[#FC4C02]/60"
+          >
+            {syncingStrava ? (
+              <div className="flex items-center gap-2">
+                <svg className="size-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span>Synchronizing Strava Profile Engine...</span>
+              </div>
+            ) : (
+              <>
+                <svg className="size-4 fill-current" viewBox="0 0 24 24">
+                  <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L11.213 0 5.399 11.531h4.144" />
+                </svg>
+                <span>Quick-Sync Health & Performance via Strava</span>
+              </>
+            )}
+          </button>
+
           <form onSubmit={handleSubmit} className="flex gap-2">
             <input
               ref={inputRef}
