@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   BookmarkCheck,
   BookmarkPlus,
@@ -9,6 +10,7 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
+import { api } from "@/api/client";
 import { cn } from "@/lib/utils";
 import type { Trail } from "@/lib/trails";
 
@@ -38,17 +40,48 @@ export function ItineraryCard({
   onSave?: (id: string) => void;
   isSaved?: boolean;
 }) {
+  const [safety, setSafety] = useState(trail.safety);
+
+  useEffect(() => {
+    setSafety(trail.safety);
+  }, [trail.id, trail.safety.status, trail.safety.label]);
+
+  useEffect(() => {
+    if (!/weather\s+data\s+loading/i.test(trail.safety.label)) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { safety: next } = await api.getTrailWeather(trail.id);
+        if (!cancelled) setSafety(next);
+      } catch {
+        if (!cancelled) {
+          setSafety({
+            status: "safe",
+            label:
+              "Weather unavailable — check OPENWEATHER_API_KEY on the server or try again later",
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trail.id, trail.safety.label]);
+
   const diff = DIFFICULTY_STYLES[trail.difficulty];
   const safetyTone = {
     safe: "bg-[oklch(0.95_0.06_145)] text-[oklch(0.38_0.12_145)] border-[oklch(0.85_0.1_145)]",
     caution: "bg-[oklch(0.96_0.09_85)] text-[oklch(0.42_0.14_75)] border-[oklch(0.85_0.13_85)]",
     warning: "bg-[oklch(0.95_0.06_25)] text-[oklch(0.42_0.18_25)] border-[oklch(0.85_0.14_25)]",
-  }[trail.safety.status];
-  const SafetyIcon = trail.safety.status === "safe"
-    ? ShieldCheck
-    : trail.safety.status === "caution"
-      ? ShieldAlert
-      : TriangleAlert;
+  }[safety.status];
+  const SafetyIcon =
+    safety.status === "safe"
+      ? ShieldCheck
+      : safety.status === "caution"
+        ? ShieldAlert
+        : TriangleAlert;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-soft)] transition hover:shadow-[var(--shadow-elevated)]">
@@ -129,22 +162,22 @@ export function ItineraryCard({
             <span
               className={cn(
                 "absolute inline-flex h-full w-full animate-ping rounded-full opacity-60",
-                trail.safety.status === "safe" && "bg-[oklch(0.6_0.18_145)]",
-                trail.safety.status === "caution" && "bg-[oklch(0.7_0.17_75)]",
-                trail.safety.status === "warning" && "bg-[oklch(0.6_0.22_25)]",
+                safety.status === "safe" && "bg-[oklch(0.6_0.18_145)]",
+                safety.status === "caution" && "bg-[oklch(0.7_0.17_75)]",
+                safety.status === "warning" && "bg-[oklch(0.6_0.22_25)]",
               )}
             />
             <span
               className={cn(
                 "relative inline-flex size-2 rounded-full",
-                trail.safety.status === "safe" && "bg-[oklch(0.55_0.18_145)]",
-                trail.safety.status === "caution" && "bg-[oklch(0.65_0.18_75)]",
-                trail.safety.status === "warning" && "bg-[oklch(0.55_0.22_25)]",
+                safety.status === "safe" && "bg-[oklch(0.55_0.18_145)]",
+                safety.status === "caution" && "bg-[oklch(0.65_0.18_75)]",
+                safety.status === "warning" && "bg-[oklch(0.55_0.22_25)]",
               )}
             />
           </span>
           <SafetyIcon className="size-3.5 shrink-0" />
-          <span className="truncate">{trail.safety.label}</span>
+          <span className="truncate">{safety.label}</span>
         </div>
 
         {/* Actions */}
@@ -153,7 +186,7 @@ export function ItineraryCard({
             <button
               type="button"
               onClick={() => onPin(trail.id)}
-              className="grid size-10 place-items-center rounded-xl bg-[var(--gradient-aegean)] text-primary-foreground shadow-[var(--shadow-soft)] transition hover:opacity-95 active:scale-[0.99]"
+              className="grid size-10 place-items-center rounded-xl border border-primary/25 bg-primary text-primary-foreground shadow-[var(--shadow-soft)] transition hover:bg-primary/90 active:scale-[0.99]"
               aria-label={`Pin ${trail.name} to map`}
               title="Pin to map"
             >
