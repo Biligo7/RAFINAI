@@ -62,7 +62,7 @@ flowchart TB
 
     SPA --> NG
     SPA -->|sign-in / session| SB
-    NG -->|"/api/* proxy"| API
+    NG -->|"/api/*"| API
     API --> PG
     API --> AI
     API --> MAP
