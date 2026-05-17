@@ -126,8 +126,11 @@
   button { cursor: pointer; }
 }
 
-/* Leaflet attribution polish */
+/* Leaflet overrides — popups must stay light regardless of app theme */
 .leaflet-container { font-family: var(--font-sans); background: oklch(0.92 0.03 220); }
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip { background: #ffffff !important; color: #1e293b !important; }
+.leaflet-popup-content { color: #1e293b !important; }
 .leaflet-control-attribution { font-size: 10px !important; background: oklch(1 0 0 / 0.7) !important; }
 
 /* Animated polyline pulse for "Re-route for Rain" */

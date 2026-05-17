@@ -130,45 +130,25 @@ async def generate_chat_response(
                 + user_prefs["preferences_text"]
             )
 
-    # Strategy 1: Inject cached trail catalog for passive context
-    trail_context = await _build_trail_context()
-    if trail_context:
-        system_prompt += trail_context
-
-    # Strategy 2: Per-query live grounding pipeline
-    grounding_context = ""
+    # Extract location from user message for location-aware context
     user_input_lower = user_message.content.lower() if user_message and user_message.content else ""
-
     detected_location = None
     overtourism_redirect = False
+    grounding_context = ""
 
     sustainability_alert = evaluate_sustainability_constraints(user_input_lower)
-
     if sustainability_alert and sustainability_alert["is_overrun"]:
         grounding_context += (
-            f"\n[SUSTAINABILITY CONSTRAINT ACTIVATED]:\n"
+            f"\n[SUSTAINABILITY CONSTRAINT]:\n"
             f"- Region: {sustainability_alert['region_name']}\n"
-            f"- Eurostat Tourism Intensity: {sustainability_alert['tourism_intensity_score']} nights/capita\n"
-            f"- Water Stress Rating: {sustainability_alert['water_stress_index']}/100\n"
-            f"- Infrastructural Load: {sustainability_alert['infrastructure_strain']}/100\n"
-            f"- Environmental Assessment: {sustainability_alert['educational_rationale']}\n"
-            f"- MANDATORY POLICY ACTION: Warmly inform the user about these environmental statistics "
-            f"and dynamically pivot their interest to our verified sustainable alternative: {sustainability_alert['alternative_pivot']}."
+            f"- Tourism Intensity: {sustainability_alert['tourism_intensity_score']} nights/capita\n"
+            f"- Water Stress: {sustainability_alert['water_stress_index']}/100\n"
+            f"- Infrastructure Strain: {sustainability_alert['infrastructure_strain']}/100\n"
+            f"- Assessment: {sustainability_alert['educational_rationale']}\n"
+            f"- ACTION: Warmly inform the user and pivot to: {sustainability_alert['alternative_pivot']}."
         )
         detected_location = sustainability_alert["alternative_pivot"].split(" ")[0]
         overtourism_redirect = True
-
-    if not overtourism_redirect:
-        trigger_keywords = ["hike", "climb", "visit", "trail", "near", "in", "at", "about", "for", "weather"]
-        words = user_message.content.split() if user_message and user_message.content else []
-
-        for i, word in enumerate(words):
-            clean_word = word.lower().strip("?,.!")
-            if clean_word in trigger_keywords and i + 1 < len(words):
-                potential_entity = " ".join([w.strip("?,.!") for w in words[i+1:i+3]])
-                if potential_entity.lower() not in ["a", "the", "it", "this", "my", "your"]:
-                    detected_location = potential_entity
-                    break
 
     if not overtourism_redirect:
         detected_location = await extract_location_with_ai(
@@ -186,74 +166,44 @@ async def generate_chat_response(
             .replace("mt.", "Mount")
             .strip()
         )
+
+    # Inject cached trail catalog — location-aware when possible
+    trail_context = await _build_trail_context(detected_location)
+    if trail_context:
+        system_prompt += trail_context
+
+    # Live grounding: weather for the detected location
+    if detected_location:
         try:
             from app.services.hikers_data import (
                 fetch_location_coordinates,
                 fetch_live_weather,
-                fetch_osm_trails,
-                fetch_ors_routing,
-                fetch_inaturalist_biodiversity,
-                fetch_reddit_trail_reports,
             )
-
-            logger.info("executing.complete.makeathon.pipeline", chat_id=chat_id, location=detected_location)
+            logger.info("live.grounding", chat_id=chat_id, location=detected_location)
             coordinates = await fetch_location_coordinates(detected_location)
-
             if coordinates:
                 lat, lon = coordinates
                 weather = await fetch_live_weather(lat, lon)
-                trails = await fetch_osm_trails(detected_location)
-                routing = await fetch_ors_routing(lat, lon)
-                fauna = await fetch_inaturalist_biodiversity(lat, lon)
-                reddit_reports = await fetch_reddit_trail_reports(detected_location)
-
-                grounding_context += f"\n[AUTOMATED REAL-TIME GROUNDING MATRIX FOR: {detected_location.upper()}]:\n"
-                grounding_context += f"- Geographic Coordinates: Latitude {lat}, Longitude {lon}\n"
-                grounding_context += f"- Current Safety Conditions: {weather['temp']}°C, {weather['condition']}\n"
-                grounding_context += f"- Wind Velocity: {weather['wind_speed']} m/s\n"
-                grounding_context += (
-                    f"- Route Profiles: Total Distance = {routing['distance_km']} km | "
-                    f"Est. Duration = {routing['duration_mins']} mins | "
-                    f"Net Elevation Ascent = +{routing['ascent_m']} m\n"
-                )
-
-                if fauna:
-                    grounding_context += f"- Local Ecosystem Observations (iNaturalist): Native species spotted near trail: {', '.join(str(f) for f in fauna)}\n"
-
-                if reddit_reports:
-                    grounding_context += "- Recent Community Field Intelligence (Reddit/Forums):\n"
-                    for report in reddit_reports:
-                        grounding_context += f"  * Live Forum Log: \"{report}\"\n"
-
+                grounding_context += f"\n[LIVE CONDITIONS FOR {detected_location.upper()}]:\n"
+                grounding_context += f"- Coordinates: {lat}, {lon}\n"
+                grounding_context += f"- Weather: {weather['temp']}°C, {weather['condition']}, wind {weather['wind_speed']} m/s\n"
                 if not weather.get("is_safe", True):
-                    grounding_context += (
-                        "\n[CRITICAL SAFETY WARNING]: Extreme weather/wind vectors detected for this trek. "
-                        "You MUST issue a prominent, clear safety warning and recommend avoiding this route right now.\n"
-                    )
+                    grounding_context += "- WARNING: Unsafe weather — advise the user against hiking right now.\n"
                 else:
-                    grounding_context += "- Route Safety Clearance: Weather verified stable for hiking.\n"
-
-                if trails:
-                    grounding_context += "\n[VERIFIED OPENSTREETMAP TRACKS FOR REGION]:\n"
-                    for idx, trail in enumerate(trails[:3]):
-                        t_name = trail.get("name", f"Local path near {detected_location}")
-                        t_diff = trail.get("difficulty", "Moderate")
-                        t_id = trail.get("id") or str(t_name.lower().replace(" ", "-"))
-                        grounding_context += f"  * Path {idx+1}: Name='{t_name}' (ID: '{t_id}', Difficulty: '{t_diff}')\n"
-
+                    grounding_context += "- Conditions are safe for hiking.\n"
         except Exception as err:
-            logger.error("automated.grounding.pipeline.failed", error=str(err), chat_id=chat_id)
+            logger.error("live.grounding.failed", error=str(err), chat_id=chat_id)
 
     if grounding_context:
-        system_prompt += f"\n\nCore Reality Context Matrix:{grounding_context}\n"
+        system_prompt += f"\n\n{grounding_context}\n"
 
     system_prompt += (
-        "\n\n[CRITICAL GROUNDING DIRECTIVES]:"
-        "\n1. You MUST explicitly quote the exact weather numbers (temp, condition, wind) provided in the 'Core Reality Context Matrix'."
-        "\n2. You MUST state the exact route distance (km), duration, and elevation ascent numbers from OpenRouteService."
-        "\n3. You MUST state the precise iNaturalist plant/animal species names provided in the context matrix."
-        "\n4. Do NOT use general phrases like 'check weather forecasts before your hike'. State what the live weather reads right now."
-        "\n5. When referencing any trail path, you MUST append its exact string token marker in the precise format [[trails:TRAIL_ID]] at the absolute end of your speech bubble so the user's interactive map functions instantly."
+        "\n\n[RESPONSE RULES]:"
+        "\n1. If live weather data is provided above, quote the exact numbers (temp, wind)."
+        "\n2. When recommending a trail, use ONLY trails from the 'Available Trails' list above."
+        "\n3. For each trail you recommend, append its ID marker in the format [[trails:TRAIL_ID]] at the end of your response."
+        "\n4. Do NOT invent trail names or IDs that are not in the list."
+        "\n5. If the user asks about a specific area, recommend trails from that area. Do not default to unrelated regions."
     )
 
     recent = history[-settings.ai_max_history_messages:]
@@ -367,8 +317,12 @@ def _total_chars(messages: list[ChatCompletionMessage]) -> int:
     return total
 
 
-async def _build_trail_context() -> str:
-    """Build a compact trail + weather summary to inject into the system prompt."""
+async def _build_trail_context(location: str | None = None) -> str:
+    """Build a compact trail summary for the system prompt.
+
+    When a location is detected, prioritize trails matching that region/name.
+    Always include a broader sample so the AI has alternatives to suggest.
+    """
     if settings.trail_source == "mock":
         return ""
     try:
@@ -376,18 +330,42 @@ async def _build_trail_context() -> str:
         from app.services.weather import get_cached_weather, weather_to_safety
 
         pool = await get_pool()
-        rows = await pool.fetch(
-            "SELECT id, name, region, difficulty, length_km, elevation_m FROM cached_trails ORDER BY name LIMIT 30"
-        )
-        if not rows:
+
+        local_rows: list = []
+        if location:
+            search = f"%{location}%"
+            local_rows = await pool.fetch(
+                "SELECT id, name, region, difficulty, length_km, elevation_m "
+                "FROM cached_trails "
+                "WHERE LOWER(name) LIKE LOWER($1) OR LOWER(region) LIKE LOWER($1) "
+                "ORDER BY name LIMIT 15",
+                search,
+            )
+
+        seen_ids = {r["id"] for r in local_rows}
+        remaining = 20 - len(local_rows)
+        if remaining > 0:
+            global_rows = await pool.fetch(
+                "SELECT id, name, region, difficulty, length_km, elevation_m "
+                "FROM cached_trails ORDER BY RANDOM() LIMIT $1",
+                remaining + 10,
+            )
+            for r in global_rows:
+                if r["id"] not in seen_ids and len(local_rows) < 20:
+                    local_rows.append(r)
+                    seen_ids.add(r["id"])
+
+        if not local_rows:
             return ""
 
+        header = "\n\n## Available Trails"
+        if location:
+            header += f" (prioritizing: {location})"
         lines = [
-            "\n\n## Available Greek Trails (live from OpenStreetMap)",
-            "When the user asks for trail recommendations, prefer trails from this catalog. "
-            "Reference them with [[trails:ID]] markers so the UI renders trail cards.",
+            header,
+            "Recommend trails ONLY from this list. Use [[trails:ID]] markers for each.",
         ]
-        for r in rows:
+        for r in local_rows:
             weather = await get_cached_weather(pool, r["id"])
             weather_note = ""
             if weather:

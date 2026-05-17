@@ -114,7 +114,7 @@ async def _enrich_trails_background(trail_ids: list[str]) -> None:
         if not row:
             continue
 
-        if not row.get("route") and settings.ors_api_key and route_count < 10:
+        if not row.get("route") and settings.ors_api_key and route_count < 5:
             try:
                 route_data = await fetch_route_for_trail(
                     lat=row["lat"], lng=row["lng"],
@@ -123,7 +123,7 @@ async def _enrich_trails_background(trail_ids: list[str]) -> None:
                 if route_data:
                     await update_trail_route(pool, trail_id, route_data)
                     route_count += 1
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1.5)
             except Exception:
                 await logger.aexception("Background route fetch failed", trail_id=trail_id)
 
@@ -300,7 +300,6 @@ async def get_live_trail_telemetry(location_name: str):
         fetch_location_coordinates,
         fetch_live_weather,
         fetch_ors_routing,
-        fetch_inaturalist_biodiversity,
     )
 
     coords = await fetch_location_coordinates(location_name)
@@ -310,16 +309,6 @@ async def get_live_trail_telemetry(location_name: str):
     lat, lon = coords
     weather = await fetch_live_weather(lat, lon)
     routing = await fetch_ors_routing(lat, lon)
-    biodiversity = await fetch_inaturalist_biodiversity(lat, lon)
-
-    api_waypoints = []
-    for idx, species in enumerate(biodiversity):
-        api_waypoints.append({
-            "kind": "biodiversity",
-            "name": species.get("name", str(species)) if isinstance(species, dict) else str(species),
-            "lat": (species.get("lat", lat + (idx + 1) * 0.003)) if isinstance(species, dict) else lat + (idx + 1) * 0.003,
-            "lng": (species.get("lng", lon - (idx + 1) * 0.003)) if isinstance(species, dict) else lon - (idx + 1) * 0.003,
-        })
 
     return {
         "location": location_name,
@@ -328,5 +317,5 @@ async def get_live_trail_telemetry(location_name: str):
         "weather": weather,
         "routing": routing,
         "geometry": routing.get("geometry", []),
-        "waypoints": api_waypoints,
+        "waypoints": [],
     }

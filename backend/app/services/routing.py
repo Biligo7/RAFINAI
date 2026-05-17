@@ -15,6 +15,32 @@ logger = get_logger("services.routing")
 _ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-hiking"
 
 
+def _decode_polyline(encoded: str) -> list[list[float]]:
+    """Decode Google-style encoded polyline (ORS default) into [[lng, lat], ...]."""
+    coords: list[list[float]] = []
+    index = 0
+    lat = 0
+    lng = 0
+    while index < len(encoded):
+        for var in range(2):
+            shift = 0
+            result = 0
+            while True:
+                b = ord(encoded[index]) - 63
+                index += 1
+                result |= (b & 0x1F) << shift
+                shift += 5
+                if b < 0x20:
+                    break
+            delta = ~(result >> 1) if (result & 1) else (result >> 1)
+            if var == 0:
+                lat += delta
+            else:
+                lng += delta
+        coords.append([lng / 1e5, lat / 1e5])
+    return coords
+
+
 async def fetch_route(
     start_lng: float, start_lat: float,
     end_lng: float, end_lat: float,
@@ -27,6 +53,7 @@ async def fetch_route(
     body = {
         "coordinates": [[start_lng, start_lat], [end_lng, end_lat]],
         "elevation": "true",
+        "geometry_format": "geojson",
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -54,7 +81,14 @@ async def fetch_route(
     route = routes[0]
     summary = route.get("summary", {})
 
-    coords_raw = route.get("geometry", {}).get("coordinates", [])
+    geometry = route.get("geometry")
+    if isinstance(geometry, dict):
+        coords_raw = geometry.get("coordinates", [])
+    elif isinstance(geometry, str):
+        coords_raw = _decode_polyline(geometry)
+    else:
+        coords_raw = []
+
     coords_latlng: list[list[float]] = []
     elevations: list[float] = []
     for c in coords_raw:
